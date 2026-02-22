@@ -20,8 +20,27 @@ app.get('/', (req, res) => {
 // Хранилище подключенных клиентов с их данными
 const clients = new Map();
 
-// Хранилище приватных сообщений (для истории)
-const privateMessages = new Map();
+// Хранилище серверов и каналов
+const servers = new Map();
+const channels = new Map();
+const dmConversations = new Map();
+
+// Инициализация дефолтного сервера
+function initializeDefaultServer() {
+    const defaultServer = {
+        id: 'default-server',
+        name: 'РусЧат Сервер',
+        channels: ['general', 'news', 'stocks']
+    };
+    servers.set('default-server', defaultServer);
+    
+    // Создаем каналы
+    channels.set('general', { id: 'general', name: 'общий', messages: [], serverId: 'default-server' });
+    channels.set('news', { id: 'news', name: 'новости', messages: [], serverId: 'default-server' });
+    channels.set('stocks', { id: 'stocks', name: 'акции', messages: [], serverId: 'default-server' });
+}
+
+initializeDefaultServer();
 
 // Функция для получения списка онлайн пользователей
 function getOnlineUsers() {
@@ -123,16 +142,55 @@ wss.on('connection', (ws) => {
                 return;
             }
 
-            // Отправка сообщения
+            // Отправка сообщения в канал
             if (data.type === 'message' && clientData) {
-                const broadcast = JSON.stringify({
-                    type: 'message',
-                    author: clientData.username,
-                    text: data.text,
-                    time: new Date().toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' }),
-                    userId: clientData.id
-                });
+                const channel = channels.get(data.channelId);
+                if (channel) {
+                    const message = {
+                        author: clientData.username,
+                        text: data.text,
+                        time: new Date().toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' }),
+                        userId: clientData.id,
+                        channelId: data.channelId
+                    };
+                    
+                    channel.messages.push(message);
+                    
+                    const broadcast = JSON.stringify({
+                        type: 'message',
+                        ...message
+                    });
 
+                    clients.forEach((userData, client) => {
+                        if (client.readyState === WebSocket.OPEN) {
+                            client.send(broadcast);
+                        }
+                    });
+                }
+            }
+
+            // Создание нового сервера
+            if (data.type === 'createServer' && clientData) {
+                const serverId = `server-${Date.now()}`;
+                const newServer = {
+                    id: serverId,
+                    name: data.serverName,
+                    channels: ['general']
+                };
+                
+                servers.set(serverId, newServer);
+                channels.set(`${serverId}-general`, {
+                    id: 'general',
+                    name: 'общий',
+                    messages: [],
+                    serverId: serverId
+                });
+                
+                const broadcast = JSON.stringify({
+                    type: 'serverCreated',
+                    server: newServer
+                });
+                
                 clients.forEach((userData, client) => {
                     if (client.readyState === WebSocket.OPEN) {
                         client.send(broadcast);
