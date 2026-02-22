@@ -4,13 +4,14 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>РусЧат - Мессенджер для россиян</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <link rel="stylesheet" href="style.css">
 </head>
 <body class="theme-dark">
     <!-- Экран авторизации -->
     <div id="auth-screen" class="screen active">
         <div class="auth-container">
-            <div class="auth-logo">🇷🇺</div>
+            <div class="auth-logo"><i class="fas fa-flag"></i></div>
             <h1>РусЧат</h1>
             <p class="auth-subtitle">Мессенджер для российских пользователей</p>
             <div class="auth-form">
@@ -33,14 +34,14 @@
         <!-- Основной контент -->
         <div class="main-content">
             <div class="chat-header">
-                <span class="channel-name"># общий</span>
+                <span class="channel-name"><i class="fas fa-hashtag"></i> общий</span>
                 <div class="header-actions">
-                    <button onclick="showWeather()" title="Погода">🌤️</button>
-                    <button onclick="showStocks()" title="Акции">📈</button>
-                    <button onclick="showGroups()" title="Группы">👥</button>
-                    <button onclick="showNitro()" class="nitro-btn" title="РусНитро">⭐</button>
-                    <button onclick="showSettings()" title="Настройки">⚙️</button>
-                    <button onclick="logout()" title="Выход">🚪</button>
+                    <button onclick="showWeather()" title="Погода"><i class="fas fa-cloud-sun"></i></button>
+                    <button onclick="showStocks()" title="Акции"><i class="fas fa-chart-line"></i></button>
+                    <button onclick="showGroups()" title="Группы"><i class="fas fa-users"></i></button>
+                    <button onclick="showNitro()" class="nitro-btn" title="РусНитро"><i class="fas fa-star"></i></button>
+                    <button onclick="showSettings()" title="Настройки"><i class="fas fa-cog"></i></button>
+                    <button onclick="logout()" title="Выход"><i class="fas fa-sign-out-alt"></i></button>
                 </div>
             </div>
             <div class="messages" id="messages"></div>
@@ -59,13 +60,13 @@
         <!-- Панель управления голосом -->
         <div class="voice-controls" id="voiceControls">
             <button class="voice-control-btn" id="muteBtn" onclick="toggleMute()">
-                <span>🎤</span> Выключить микрофон
+                <i class="fas fa-microphone"></i> Выключить микрофон
             </button>
             <button class="voice-control-btn" id="screenShareBtn" onclick="shareScreen()">
-                <span>🖥️</span> Демонстрация экрана
+                <i class="fas fa-desktop"></i> Демонстрация экрана
             </button>
             <button class="voice-control-btn danger" onclick="leaveVoiceChannel()">
-                <span>📞</span> Отключиться
+                <i class="fas fa-phone-slash"></i> Отключиться
             </button>
         </div>
     </div>

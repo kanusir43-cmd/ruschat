@@ -22,6 +22,14 @@ const clients = new Map();
 const servers = new Map();
 const channels = new Map();
 const voiceRooms = new Map();
+const rateLimits = new Map(); // Защита от спама
+
+// Константы для rate limiting
+const RATE_LIMIT = {
+    messages: 5, // максимум сообщений
+    timeWindow: 5000, // за 5 секунд
+    banTime: 30000 // бан на 30 секунд
+};
 
 // Инициализация дефолтного сервера
 function initializeDefaultServer() {
@@ -85,6 +93,45 @@ function getOnlineUsers() {
         });
     });
     return users;
+}
+
+function checkRateLimit(userId) {
+    const now = Date.now();
+    
+    if (!rateLimits.has(userId)) {
+        rateLimits.set(userId, {
+            messages: [],
+            banned: false,
+            banUntil: 0
+        });
+    }
+    
+    const userLimit = rateLimits.get(userId);
+    
+    // Проверяем, не забанен ли пользователь
+    if (userLimit.banned && now < userLimit.banUntil) {
+        return { allowed: false, reason: 'Вы забанены за спам. Попробуйте позже.' };
+    }
+    
+    if (userLimit.banned && now >= userLimit.banUntil) {
+        userLimit.banned = false;
+        userLimit.messages = [];
+    }
+    
+    // Удаляем старые сообщения за пределами временного окна
+    userLimit.messages = userLimit.messages.filter(time => now - time < RATE_LIMIT.timeWindow);
+    
+    // Проверяем лимит
+    if (userLimit.messages.length >= RATE_LIMIT.messages) {
+        userLimit.banned = true;
+        userLimit.banUntil = now + RATE_LIMIT.banTime;
+        userLimit.messages = [];
+        return { allowed: false, reason: 'Слишком много сообщений. Вы забанены на 30 секунд.' };
+    }
+    
+    // Добавляем текущее сообщение
+    userLimit.messages.push(now);
+    return { allowed: true };
 }
 
 function findClientByUsername(username) {
@@ -199,6 +246,16 @@ wss.on('connection', (ws) => {
 
             // Отправка сообщения в канал
             if (data.type === 'message') {
+                // Проверка rate limit
+                const rateCheck = checkRateLimit(clientData.id);
+                if (!rateCheck.allowed) {
+                    ws.send(JSON.stringify({
+                        type: 'error',
+                        message: rateCheck.reason
+                    }));
+                    return;
+                }
+                
                 const channel = channels.get(`${data.serverId}-${data.channelId}`);
                 if (channel) {
                     const message = {

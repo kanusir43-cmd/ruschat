@@ -905,3 +905,8 @@ body.theme-blue {
 ::-webkit-scrollbar-thumb:hover {
     background: var(--text-secondary);
 }
+
+
+.notification-warning {
+    border-left: 4px solid var(--warning);
+}

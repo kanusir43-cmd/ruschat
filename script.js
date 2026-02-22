@@ -21,6 +21,11 @@ let userAvatar = null;
 let groups = [];
 let groupAvatars = {};
 
+// Защита от спама
+let lastMessageTime = 0;
+let messageDebounceTimer = null;
+const MIN_MESSAGE_INTERVAL = 500; // минимум 500мс между сообщениями
+
 // ===== АУТЕНТИФИКАЦИЯ =====
 function isRussianPhone(phone) {
     return phone.startsWith('+7') && phone.length >= 12;
@@ -464,7 +469,13 @@ function loadMessages() {
     messagesDiv.innerHTML = '';
     
     const key = `${currentServerId}-${currentChannelId}`;
-    const messages = channelMessages.get(key) || [];
+    let messages = channelMessages.get(key) || [];
+    
+    // Ограничиваем количество отображаемых сообщений (последние 100)
+    if (messages.length > 100) {
+        messages = messages.slice(-100);
+    }
+    
     messages.forEach(msg => displayMessage(msg));
 }
 
@@ -497,9 +508,23 @@ function sendMessage() {
     const input = document.getElementById('messageText');
     const text = input.value.trim();
     
-    if (!text || !ws || ws.readyState !== WebSocket.OPEN) {
-        if (!text) return;
+    if (!text) return;
+    
+    // Проверка интервала между сообщениями
+    const now = Date.now();
+    if (now - lastMessageTime < MIN_MESSAGE_INTERVAL) {
+        showNotification('Не спешите! Подождите немного перед следующим сообщением.', 'warning');
+        return;
+    }
+    
+    if (!ws || ws.readyState !== WebSocket.OPEN) {
         showNotification('Нет соединения с сервером', 'error');
+        return;
+    }
+    
+    // Проверка длины сообщения
+    if (text.length > 2000) {
+        showNotification('Сообщение слишком длинное (максимум 2000 символов)', 'error');
         return;
     }
     
@@ -510,6 +535,7 @@ function sendMessage() {
         serverId: currentServerId
     }));
     
+    lastMessageTime = now;
     input.value = '';
 }
 
@@ -825,9 +851,22 @@ function sendDM() {
     const input = document.getElementById('dmInput');
     const text = input.value.trim();
     
-    if (!text || !currentDMUser || !ws || ws.readyState !== WebSocket.OPEN) {
-        if (!text) return;
+    if (!text) return;
+    
+    // Проверка интервала между сообщениями
+    const now = Date.now();
+    if (now - lastMessageTime < MIN_MESSAGE_INTERVAL) {
+        showNotification('Не спешите! Подождите немного.', 'warning');
+        return;
+    }
+    
+    if (!currentDMUser || !ws || ws.readyState !== WebSocket.OPEN) {
         showNotification('Нет соединения с сервером', 'error');
+        return;
+    }
+    
+    if (text.length > 2000) {
+        showNotification('Сообщение слишком длинное', 'error');
         return;
     }
     
@@ -837,6 +876,7 @@ function sendDM() {
         text: text
     }));
     
+    lastMessageTime = now;
     input.value = '';
 }
 
@@ -938,7 +978,7 @@ function createServerSettingsModal() {
     modal.innerHTML = `
         <div class="modal-content">
             <span class="close" onclick="closeModal('server-settings-modal')">&times;</span>
-            <h2>⚙️ Настройки сервера</h2>
+            <h2><i class="fas fa-cog"></i> Настройки сервера</h2>
             <div class="settings-section">
                 <h3>Название сервера</h3>
                 <input type="text" id="serverNameInput" class="settings-input" placeholder="Название сервера">
@@ -961,6 +1001,503 @@ function saveServerSettings() {
             showNotification('Настройки сохранены', 'success');
         }
     }
+}
+
+// ===== ПОГОДА =====
+function showWeather() {
+    const modal = document.getElementById('weather-modal');
+    if (!modal) {
+        createWeatherModal();
+    }
+    document.getElementById('weather-modal').classList.add('active');
+    loadWeather();
+}
+
+function createWeatherModal() {
+    const modal = document.createElement('div');
+    modal.id = 'weather-modal';
+    modal.className = 'modal';
+    modal.innerHTML = `
+        <div class="modal-content">
+            <span class="close" onclick="closeModal('weather-modal')">&times;</span>
+            <h2><i class="fas fa-cloud-sun"></i> Прогноз погоды</h2>
+            <div class="weather-search">
+                <input type="text" id="cityInput" placeholder="Введите город..." value="Москва">
+                <button onclick="loadWeather()"><i class="fas fa-search"></i></button>
+            </div>
+            <div id="weatherContent"></div>
+        </div>
+    `;
+    document.body.appendChild(modal);
+}
+
+function loadWeather() {
+    const city = document.getElementById('cityInput').value.trim() || 'Москва';
+    const weatherContent = document.getElementById('weatherContent');
+    
+    const temp = Math.floor(Math.random() * 30) - 10;
+    const conditions = ['Ясно', 'Облачно', 'Дождь', 'Снег', 'Переменная облачность'];
+    const condition = conditions[Math.floor(Math.random() * conditions.length)];
+    const humidity = Math.floor(Math.random() * 40) + 40;
+    const wind = Math.floor(Math.random() * 15) + 3;
+    
+    const weatherIcons = {
+        'Ясно': '<i class="fas fa-sun"></i>',
+        'Облачно': '<i class="fas fa-cloud"></i>',
+        'Дождь': '<i class="fas fa-cloud-rain"></i>',
+        'Снег': '<i class="fas fa-snowflake"></i>',
+        'Переменная облачность': '<i class="fas fa-cloud-sun"></i>'
+    };
+    
+    weatherContent.innerHTML = `
+        <div class="weather-current">
+            <div class="weather-icon">${weatherIcons[condition]}</div>
+            <div class="weather-temp">${temp}°C</div>
+            <div class="weather-condition">${condition}</div>
+            <div class="weather-city">${city}</div>
+        </div>
+        <div class="weather-details">
+            <div class="weather-detail">
+                <span><i class="fas fa-droplet"></i> Влажность</span>
+                <span>${humidity}%</span>
+            </div>
+            <div class="weather-detail">
+                <span><i class="fas fa-wind"></i> Ветер</span>
+                <span>${wind} м/с</span>
+            </div>
+            <div class="weather-detail">
+                <span><i class="fas fa-thermometer"></i> Ощущается как</span>
+                <span>${temp - 2}°C</span>
+            </div>
+        </div>
+        <div class="weather-forecast">
+            <h3>Прогноз на неделю</h3>
+            <div class="forecast-days">
+                ${generateForecast()}
+            </div>
+        </div>
+    `;
+}
+
+function generateForecast() {
+    const days = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс'];
+    const icons = ['<i class="fas fa-sun"></i>', '<i class="fas fa-cloud-sun"></i>', '<i class="fas fa-cloud"></i>', '<i class="fas fa-cloud-rain"></i>', '<i class="fas fa-snowflake"></i>'];
+    let html = '';
+    
+    for (let i = 0; i < 7; i++) {
+        const temp = Math.floor(Math.random() * 25) - 5;
+        const icon = icons[Math.floor(Math.random() * icons.length)];
+        html += `
+            <div class="forecast-day">
+                <div>${days[i]}</div>
+                <div class="forecast-icon">${icon}</div>
+                <div class="forecast-temp">${temp}°</div>
+            </div>
+        `;
+    }
+    return html;
+}
+
+// ===== АКЦИИ =====
+const russianStocks = [
+    { name: 'Газпром', ticker: 'GAZP', price: 175.50, change: 2.3 },
+    { name: 'Сбербанк', ticker: 'SBER', price: 285.20, change: -1.2 },
+    { name: 'Лукойл', ticker: 'LKOH', price: 6420.00, change: 3.5 },
+    { name: 'Яндекс', ticker: 'YNDX', price: 3250.00, change: 1.8 },
+    { name: 'Роснефть', ticker: 'ROSN', price: 545.30, change: -0.5 },
+    { name: 'Норникель', ticker: 'GMKN', price: 15800.00, change: 4.2 }
+];
+
+function showStocks() {
+    const modal = document.getElementById('stocks-modal');
+    if (!modal) {
+        createStocksModal();
+    }
+    document.getElementById('stocks-modal').classList.add('active');
+    updateStocks();
+}
+
+function createStocksModal() {
+    const modal = document.createElement('div');
+    modal.id = 'stocks-modal';
+    modal.className = 'modal';
+    modal.innerHTML = `
+        <div class="modal-content">
+            <span class="close" onclick="closeModal('stocks-modal')">&times;</span>
+            <h2><i class="fas fa-chart-line"></i> Российские акции</h2>
+            <div id="stocksList"></div>
+        </div>
+    `;
+    document.body.appendChild(modal);
+}
+
+function updateStocks() {
+    const stocksList = document.getElementById('stocksList');
+    stocksList.innerHTML = '';
+    
+    russianStocks.forEach(stock => {
+        const changeClass = stock.change >= 0 ? 'positive' : 'negative';
+        const changeSign = stock.change >= 0 ? '+' : '';
+        const changeIcon = stock.change >= 0 ? '<i class="fas fa-arrow-up"></i>' : '<i class="fas fa-arrow-down"></i>';
+        
+        const stockEl = document.createElement('div');
+        stockEl.className = 'stock-item';
+        stockEl.innerHTML = `
+            <div>
+                <div class="stock-name">${stock.name} (${stock.ticker})</div>
+            </div>
+            <div style="text-align: right;">
+                <div class="stock-price">${stock.price.toFixed(2)} ₽</div>
+                <div class="stock-change ${changeClass}">${changeIcon} ${changeSign}${stock.change}%</div>
+            </div>
+        `;
+        stocksList.appendChild(stockEl);
+    });
+}
+
+// ===== ГРУППЫ =====
+let groups = [];
+let groupAvatars = {};
+let currentGroupId = null;
+
+function showGroups() {
+    const modal = document.getElementById('groups-modal');
+    if (!modal) {
+        createGroupsModal();
+    }
+    document.getElementById('groups-modal').classList.add('active');
+    loadGroups();
+}
+
+function createGroupsModal() {
+    const modal = document.createElement('div');
+    modal.id = 'groups-modal';
+    modal.className = 'modal';
+    modal.innerHTML = `
+        <div class="modal-content">
+            <span class="close" onclick="closeModal('groups-modal')">&times;</span>
+            <h2><i class="fas fa-users"></i> Группы</h2>
+            <button class="settings-btn" onclick="createGroup()"><i class="fas fa-plus"></i> Создать группу</button>
+            <div id="groupsList" class="groups-list"></div>
+        </div>
+    `;
+    document.body.appendChild(modal);
+}
+
+function loadGroups() {
+    const saved = localStorage.getItem('groups');
+    if (saved) {
+        groups = JSON.parse(saved);
+    }
+    
+    const groupsList = document.getElementById('groupsList');
+    groupsList.innerHTML = '';
+    
+    if (groups.length === 0) {
+        groupsList.innerHTML = '<p class="empty-state">У вас пока нет групп. Создайте первую!</p>';
+        return;
+    }
+    
+    groups.forEach(group => {
+        const groupEl = document.createElement('div');
+        groupEl.className = 'group-item';
+        groupEl.onclick = () => openGroupSettings(group.id);
+        
+        const avatarStyle = groupAvatars[group.id] 
+            ? `background-image: url(${groupAvatars[group.id]}); background-size: cover; background-position: center;`
+            : '';
+        
+        groupEl.innerHTML = `
+            <div class="group-avatar" style="${avatarStyle}">
+                ${!groupAvatars[group.id] ? `<i class="fas fa-users"></i>` : ''}
+            </div>
+            <div class="group-info">
+                <div class="group-name">${group.name}</div>
+                <div class="group-members-count"><i class="fas fa-user"></i> ${group.members.length}</div>
+            </div>
+        `;
+        groupsList.appendChild(groupEl);
+    });
+}
+
+function createGroup() {
+    const name = prompt('Введите название группы:');
+    if (name && name.trim()) {
+        const group = {
+            id: Date.now(),
+            name: name.trim(),
+            members: [currentUser.username],
+            createdAt: new Date().toISOString()
+        };
+        
+        groups.push(group);
+        localStorage.setItem('groups', JSON.stringify(groups));
+        loadGroups();
+        showNotification('Группа создана!', 'success');
+    }
+}
+
+function openGroupSettings(groupId) {
+    currentGroupId = groupId;
+    const group = groups.find(g => g.id === groupId);
+    if (!group) return;
+    
+    const modal = document.getElementById('group-settings-modal');
+    if (!modal) {
+        createGroupSettingsModal();
+    }
+    
+    document.getElementById('groupNameInput').value = group.name;
+    document.getElementById('groupNameDisplay').textContent = group.name;
+    
+    const membersList = document.getElementById('groupMembers');
+    membersList.innerHTML = '';
+    group.members.forEach(member => {
+        const memberEl = document.createElement('div');
+        memberEl.className = 'group-member-item';
+        memberEl.innerHTML = `
+            <span class="status online"></span>
+            <span>${member}</span>
+            ${member !== currentUser.username ? `<button onclick="removeFromGroup('${member}')" style="margin-left: auto; background: #ed4245; border: none; color: white; padding: 4px 8px; border-radius: 4px; cursor: pointer;"><i class="fas fa-trash"></i></button>` : ''}
+        `;
+        membersList.appendChild(memberEl);
+    });
+    
+    closeModal('groups-modal');
+    document.getElementById('group-settings-modal').classList.add('active');
+}
+
+function createGroupSettingsModal() {
+    const modal = document.createElement('div');
+    modal.id = 'group-settings-modal';
+    modal.className = 'modal';
+    modal.innerHTML = `
+        <div class="modal-content">
+            <span class="close" onclick="closeModal('group-settings-modal')">&times;</span>
+            <h2><i class="fas fa-cog"></i> Настройки группы</h2>
+            <div class="settings-section">
+                <h3>Название группы</h3>
+                <input type="text" id="groupNameInput" class="settings-input" placeholder="Название группы">
+                <button class="settings-btn" onclick="saveGroupSettings()">Сохранить</button>
+            </div>
+            <div class="settings-section">
+                <h3>Участники</h3>
+                <div id="groupMembers" class="group-members-list"></div>
+                <div style="margin-top: 12px;">
+                    <input type="text" id="addMemberInput" placeholder="Добавить участника..." style="padding: 8px; border: 1px solid #555; border-radius: 4px; background: var(--bg-tertiary); color: var(--text-primary); width: 100%; margin-bottom: 8px;">
+                    <button class="settings-btn" onclick="addMemberToGroup()"><i class="fas fa-plus"></i> Добавить</button>
+                </div>
+            </div>
+        </div>
+    `;
+    document.body.appendChild(modal);
+}
+
+function saveGroupSettings() {
+    if (!currentGroupId) return;
+    
+    const newName = document.getElementById('groupNameInput').value.trim();
+    const group = groups.find(g => g.id === currentGroupId);
+    
+    if (newName && group) {
+        group.name = newName;
+        localStorage.setItem('groups', JSON.stringify(groups));
+        closeModal('group-settings-modal');
+        loadGroups();
+        showNotification('Группа обновлена!', 'success');
+    }
+}
+
+function addMemberToGroup() {
+    const input = document.getElementById('addMemberInput');
+    const memberName = input.value.trim();
+    
+    if (!memberName || !currentGroupId) return;
+    
+    const group = groups.find(g => g.id === currentGroupId);
+    if (group && !group.members.includes(memberName)) {
+        group.members.push(memberName);
+        localStorage.setItem('groups', JSON.stringify(groups));
+        input.value = '';
+        openGroupSettings(currentGroupId);
+        showNotification('Участник добавлен!', 'success');
+    }
+}
+
+function removeFromGroup(memberName) {
+    if (!currentGroupId) return;
+    
+    const group = groups.find(g => g.id === currentGroupId);
+    if (group) {
+        group.members = group.members.filter(m => m !== memberName);
+        localStorage.setItem('groups', JSON.stringify(groups));
+        openGroupSettings(currentGroupId);
+        showNotification('Участник удален!', 'info');
+    }
+}
+
+// ===== НИТРО =====
+function showNitro() {
+    const modal = document.getElementById('nitro-modal');
+    if (!modal) {
+        createNitroModal();
+    }
+    document.getElementById('nitro-modal').classList.add('active');
+}
+
+function createNitroModal() {
+    const modal = document.createElement('div');
+    modal.id = 'nitro-modal';
+    modal.className = 'modal';
+    modal.innerHTML = `
+        <div class="modal-content nitro-content">
+            <span class="close" onclick="closeModal('nitro-modal')">&times;</span>
+            <div class="nitro-header">
+                <h1><i class="fas fa-star"></i> РусНитро</h1>
+                <p class="nitro-subtitle">Бесплатно для всех россиян!</p>
+            </div>
+            <div class="nitro-features">
+                <div class="nitro-feature">
+                    <span class="nitro-icon"><i class="fas fa-palette"></i></span>
+                    <div>
+                        <h3>Кастомные аватары</h3>
+                        <p>Загружайте свои изображения</p>
+                    </div>
+                </div>
+                <div class="nitro-feature">
+                    <span class="nitro-icon"><i class="fas fa-smile"></i></span>
+                    <div>
+                        <h3>Эмодзи везде</h3>
+                        <p>Используйте эмодзи в любом месте</p>
+                    </div>
+                </div>
+                <div class="nitro-feature">
+                    <span class="nitro-icon"><i class="fas fa-folder"></i></span>
+                    <div>
+                        <h3>Большие файлы</h3>
+                        <p>До 100 МБ вместо 8 МБ</p>
+                    </div>
+                </div>
+                <div class="nitro-feature">
+                    <span class="nitro-icon"><i class="fas fa-video"></i></span>
+                    <div>
+                        <h3>HD видео</h3>
+                        <p>Трансляция в 1080p 60fps</p>
+                    </div>
+                </div>
+                <div class="nitro-feature">
+                    <span class="nitro-icon"><i class="fas fa-user-circle"></i></span>
+                    <div>
+                        <h3>Профили</h3>
+                        <p>Кастомизация профиля</p>
+                    </div>
+                </div>
+                <div class="nitro-feature">
+                    <span class="nitro-icon"><i class="fas fa-rocket"></i></span>
+                    <div>
+                        <h3>Буст серверов</h3>
+                        <p>2 бесплатных буста</p>
+                    </div>
+                </div>
+            </div>
+            <div class="nitro-activated">
+                <div class="nitro-badge-large"><i class="fas fa-star"></i> РусНитро Активирован</div>
+                <p>Вы получили все преимущества бесплатно!</p>
+            </div>
+        </div>
+    `;
+    document.body.appendChild(modal);
+}
+
+// ===== НАСТРОЙКИ =====
+function showSettings() {
+    const modal = document.getElementById('settings-modal');
+    if (!modal) {
+        createSettingsModal();
+    }
+    document.getElementById('settings-modal').classList.add('active');
+}
+
+function createSettingsModal() {
+    const modal = document.createElement('div');
+    modal.id = 'settings-modal';
+    modal.className = 'modal';
+    modal.innerHTML = `
+        <div class="modal-content">
+            <span class="close" onclick="closeModal('settings-modal')">&times;</span>
+            <h2><i class="fas fa-cog"></i> Настройки</h2>
+            <div class="settings-section">
+                <h3>Профиль</h3>
+                <div class="profile-preview">
+                    <div class="profile-avatar" id="profileAvatar">
+                        <i class="fas fa-user"></i>
+                    </div>
+                    <div>
+                        <div class="profile-name" id="profileName">Пользователь</div>
+                        <div class="nitro-badge"><i class="fas fa-star"></i> РусНитро</div>
+                    </div>
+                </div>
+                <button class="settings-btn" onclick="changeAvatar()"><i class="fas fa-image"></i> Изменить аватар</button>
+                <input type="file" id="avatarInput" accept="image/*" style="display: none;" onchange="handleAvatarUpload(event)">
+            </div>
+            <div class="settings-section">
+                <h3>Тема оформления</h3>
+                <select id="themeSelect" onchange="changeTheme()" style="padding: 8px; border: 1px solid #555; border-radius: 4px; background: var(--bg-tertiary); color: var(--text-primary); width: 100%;">
+                    <option value="dark">Темная</option>
+                    <option value="light">Светлая</option>
+                    <option value="blue">Синяя</option>
+                </select>
+            </div>
+            <div class="settings-section">
+                <h3>Уведомления</h3>
+                <label class="checkbox-label">
+                    <input type="checkbox" id="soundNotif" checked> Звуковые уведомления
+                </label>
+                <label class="checkbox-label">
+                    <input type="checkbox" id="desktopNotif" checked> Уведомления на рабочем столе
+                </label>
+            </div>
+        </div>
+    `;
+    document.body.appendChild(modal);
+    
+    const savedTheme = localStorage.getItem('theme') || 'dark';
+    document.getElementById('themeSelect').value = savedTheme;
+}
+
+function changeAvatar() {
+    document.getElementById('avatarInput').click();
+}
+
+function handleAvatarUpload(event) {
+    const file = event.target.files[0];
+    if (file) {
+        const reader = new FileReader();
+        reader.onload = function(e) {
+            userAvatar = e.target.result;
+            localStorage.setItem('userAvatar', userAvatar);
+            updateUserAvatar();
+            showNotification('Аватар обновлен!', 'success');
+        };
+        reader.readAsDataURL(file);
+    }
+}
+
+function updateUserAvatar() {
+    const profileAvatar = document.getElementById('profileAvatar');
+    if (profileAvatar && userAvatar) {
+        profileAvatar.style.backgroundImage = `url(${userAvatar})`;
+        profileAvatar.style.backgroundSize = 'cover';
+        profileAvatar.style.backgroundPosition = 'center';
+        profileAvatar.innerHTML = '';
+    }
+}
+
+function changeTheme() {
+    const theme = document.getElementById('themeSelect').value;
+    document.body.className = `theme-${theme}`;
+    localStorage.setItem('theme', theme);
+    showNotification('Тема изменена!', 'success');
 }
 
 // Закрытие модальных окон при клике вне их
