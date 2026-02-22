@@ -1161,8 +1161,6 @@ function updateStocks() {
 }
 
 // ===== ГРУППЫ =====
-let groups = [];
-let groupAvatars = {};
 let currentGroupId = null;
 
 function showGroups() {
@@ -1511,10 +1509,3 @@ window.onclick = function(event) {
         event.target.classList.remove('active');
     }
 }
-
-// Заглушки для дополнительных функций
-function showWeather() { showNotification('Функция в разработке', 'info'); }
-function showStocks() { showNotification('Функция в разработке', 'info'); }
-function showGroups() { showNotification('Функция в разработке', 'info'); }
-function showNitro() { showNotification('Функция в разработке', 'info'); }
-function showSettings() { showNotification('Функция в разработке', 'info'); }
