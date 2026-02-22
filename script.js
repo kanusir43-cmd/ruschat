@@ -575,10 +575,21 @@ function updateMembersList() {
         
         const statusClass = user.voiceChannel ? 'voice' : 'online';
         
+        // Create avatar element
+        let avatarHTML = '';
+        if (user.avatar) {
+            avatarHTML = `<div class="member-avatar" style="background-image: url(${user.avatar}); background-size: cover; background-position: center; width: 32px; height: 32px; border-radius: 50%; flex-shrink: 0;"></div>`;
+        } else {
+            avatarHTML = `<div class="member-avatar" style="width: 32px; height: 32px; border-radius: 50%; background-color: #5865F2; display: flex; align-items: center; justify-content: center; color: white; font-weight: bold; flex-shrink: 0;">${user.username.charAt(0).toUpperCase()}</div>`;
+        }
+        
         memberEl.innerHTML = `
-            <span class="status ${statusClass}"></span>
-            <span class="member-name">${user.username}</span>
-            ${user.voiceChannel ? '<span class="voice-indicator">🎤</span>' : ''}
+            ${avatarHTML}
+            <div style="flex: 1; min-width: 0;">
+                <span class="status ${statusClass}"></span>
+                <span class="member-name">${user.username}</span>
+                ${user.voiceChannel ? '<span class="voice-indicator"><i class="fas fa-microphone"></i></span>' : ''}
+            </div>
         `;
         membersList.appendChild(memberEl);
     });
@@ -1519,6 +1530,24 @@ function handleAvatarUpload(event) {
             userAvatar = e.target.result;
             localStorage.setItem('userAvatar', userAvatar);
             updateUserAvatar();
+            
+            // Update local onlineUsers to show new avatar immediately
+            const currentUserIndex = onlineUsers.findIndex(u => u.username === currentUsername);
+            if (currentUserIndex !== -1) {
+                onlineUsers[currentUserIndex].avatar = userAvatar;
+            }
+            
+            // Send avatar to server
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify({
+                    type: 'userAvatarUpdate',
+                    avatar: userAvatar
+                }));
+            }
+            
+            // Update members list to show new avatar
+            updateMembersList();
+            
             showNotification('Аватар обновлен!', 'success');
         };
         reader.readAsDataURL(file);

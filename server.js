@@ -24,6 +24,7 @@ const channels = new Map();
 const voiceRooms = new Map();
 const rateLimits = new Map(); // Защита от спама
 const serverAvatars = new Map(); // Аватарки серверов
+const userAvatars = new Map(); // Аватарки пользователей
 
 // Константы для rate limiting
 const RATE_LIMIT = {
@@ -90,7 +91,8 @@ function getOnlineUsers() {
             username: userData.username,
             phone: userData.phone,
             id: userData.id,
-            voiceChannel: userData.voiceChannel || null
+            voiceChannel: userData.voiceChannel || null,
+            avatar: userAvatars.get(userData.username) || null
         });
     });
     return users;
@@ -497,6 +499,12 @@ wss.on('connection', (ws) => {
                 }
 
                 ws.send(JSON.stringify(privateMsg));
+            }
+
+            // Обновление аватара пользователя
+            if (data.type === 'userAvatarUpdate') {
+                userAvatars.set(clientData.username, data.avatar);
+                broadcastUserList();
             }
 
         } catch (error) {
