@@ -7,7 +7,7 @@ const app = express();
 const server = http.createServer(app);
 const wss = new WebSocket.Server({ server });
 
-const PORT = 3000;
+const PORT = process.env.PORT || 3000;
 
 // Статические файлы
 app.use(express.static(__dirname));
@@ -17,45 +17,76 @@ app.get('/', (req, res) => {
     res.sendFile(path.join(__dirname, 'index.html'));
 });
 
-// Хранилище подключенных клиентов с их данными
+// Хранилище данных
 const clients = new Map();
-
-// Хранилище серверов и каналов
 const servers = new Map();
 const channels = new Map();
-const dmConversations = new Map();
+const voiceRooms = new Map();
 
 // Инициализация дефолтного сервера
 function initializeDefaultServer() {
     const defaultServer = {
         id: 'default-server',
         name: 'РусЧат Сервер',
-        channels: ['general', 'news', 'stocks']
+        textChannels: ['general', 'random', 'memes'],
+        voiceChannels: ['voice-1', 'voice-2']
     };
     servers.set('default-server', defaultServer);
     
-    // Создаем каналы
-    channels.set('general', { id: 'general', name: 'общий', messages: [], serverId: 'default-server' });
-    channels.set('news', { id: 'news', name: 'новости', messages: [], serverId: 'default-server' });
-    channels.set('stocks', { id: 'stocks', name: 'акции', messages: [], serverId: 'default-server' });
+    // Текстовые каналы
+    channels.set('default-server-general', { 
+        id: 'general', 
+        name: 'общий', 
+        type: 'text',
+        messages: [], 
+        serverId: 'default-server' 
+    });
+    channels.set('default-server-random', { 
+        id: 'random', 
+        name: 'случайное', 
+        type: 'text',
+        messages: [], 
+        serverId: 'default-server' 
+    });
+    channels.set('default-server-memes', { 
+        id: 'memes', 
+        name: 'мемы', 
+        type: 'text',
+        messages: [], 
+        serverId: 'default-server' 
+    });
+    
+    // Голосовые каналы
+    voiceRooms.set('default-server-voice-1', {
+        id: 'voice-1',
+        name: 'Общая комната',
+        serverId: 'default-server',
+        members: []
+    });
+    voiceRooms.set('default-server-voice-2', {
+        id: 'voice-2',
+        name: 'Игровая',
+        serverId: 'default-server',
+        members: []
+    });
 }
 
 initializeDefaultServer();
 
-// Функция для получения списка онлайн пользователей
+// Утилиты
 function getOnlineUsers() {
     const users = [];
     clients.forEach((userData) => {
         users.push({
             username: userData.username,
             phone: userData.phone,
-            id: userData.id
+            id: userData.id,
+            voiceChannel: userData.voiceChannel || null
         });
     });
     return users;
 }
 
-// Функция для поиска WebSocket клиента по username
 function findClientByUsername(username) {
     for (let [ws, userData] of clients) {
         if (userData.username === username) {
@@ -65,32 +96,39 @@ function findClientByUsername(username) {
     return null;
 }
 
-// Функция для отправки списка онлайн пользователей всем клиентам
+function broadcastToServer(serverId, message) {
+    clients.forEach((userData, client) => {
+        if (client.readyState === WebSocket.OPEN) {
+            client.send(JSON.stringify(message));
+        }
+    });
+}
+
 function broadcastUserList() {
     const userList = getOnlineUsers();
-    const message = JSON.stringify({
+    const message = {
         type: 'userList',
         users: userList,
         count: userList.length
-    });
+    };
 
     clients.forEach((userData, ws) => {
         if (ws.readyState === WebSocket.OPEN) {
-            ws.send(message);
+            ws.send(JSON.stringify(message));
         }
     });
 }
 
 // WebSocket соединения
 wss.on('connection', (ws) => {
-    console.log('Новое подключение');
+    console.log('🔌 Новое подключение');
     let clientData = null;
 
     ws.on('message', (message) => {
         try {
             const data = JSON.parse(message);
             
-            // Аутентификация пользователя
+            // Аутентификация
             if (data.type === 'auth') {
                 if (!data.phone.startsWith('+7')) {
                     ws.send(JSON.stringify({
@@ -104,175 +142,315 @@ wss.on('connection', (ws) => {
                 clientData = {
                     username: data.username,
                     phone: data.phone,
-                    id: data.id
+                    id: data.id,
+                    voiceChannel: null
                 };
 
                 clients.set(ws, clientData);
-                console.log(`${data.username} присоединился к чату`);
+                console.log(`✅ ${data.username} присоединился`);
 
-                // Отправляем подтверждение
+                // Отправляем структуру серверов
+                const serversList = [];
+                servers.forEach((server, serverId) => {
+                    const textChannels = [];
+                    const voiceChannels = [];
+                    
+                    server.textChannels.forEach(channelId => {
+                        const channel = channels.get(`${serverId}-${channelId}`);
+                        if (channel) {
+                            textChannels.push({
+                                id: channelId,
+                                name: channel.name,
+                                type: 'text'
+                            });
+                        }
+                    });
+                    
+                    server.voiceChannels.forEach(channelId => {
+                        const room = voiceRooms.get(`${serverId}-${channelId}`);
+                        if (room) {
+                            voiceChannels.push({
+                                id: channelId,
+                                name: room.name,
+                                type: 'voice',
+                                members: room.members
+                            });
+                        }
+                    });
+                    
+                    serversList.push({
+                        id: serverId,
+                        name: server.name,
+                        textChannels,
+                        voiceChannels
+                    });
+                });
+
                 ws.send(JSON.stringify({
                     type: 'authSuccess',
-                    message: `Добро пожаловать, ${data.username}! 🇷🇺`
+                    servers: serversList
                 }));
 
-                // Отправляем текущий список пользователей
-                ws.send(JSON.stringify({
-                    type: 'userList',
-                    users: getOnlineUsers(),
-                    count: getOnlineUsers().length
-                }));
-
-                // Уведомляем всех о новом пользователе
-                const joinMessage = JSON.stringify({
-                    type: 'system',
-                    author: 'Система',
-                    text: `${data.username} присоединился к чату 👋`,
-                    time: new Date().toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })
-                });
-
-                clients.forEach((userData, client) => {
-                    if (client.readyState === WebSocket.OPEN) {
-                        client.send(joinMessage);
-                    }
-                });
-
-                // Обновляем список пользователей для всех
                 broadcastUserList();
                 return;
             }
 
+            if (!clientData) return;
+
             // Отправка сообщения в канал
-            if (data.type === 'message' && clientData) {
-                const channel = channels.get(data.channelId);
+            if (data.type === 'message') {
+                const channel = channels.get(`${data.serverId}-${data.channelId}`);
                 if (channel) {
                     const message = {
                         author: clientData.username,
                         text: data.text,
                         time: new Date().toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' }),
                         userId: clientData.id,
-                        channelId: data.channelId
+                        channelId: data.channelId,
+                        serverId: data.serverId
                     };
                     
                     channel.messages.push(message);
                     
-                    const broadcast = JSON.stringify({
+                    broadcastToServer(data.serverId, {
                         type: 'message',
                         ...message
                     });
+                }
+            }
 
-                    clients.forEach((userData, client) => {
-                        if (client.readyState === WebSocket.OPEN) {
-                            client.send(broadcast);
+            // Создание сервера
+            if (data.type === 'createServer') {
+                const serverId = `server-${Date.now()}`;
+                const newServer = {
+                    id: serverId,
+                    name: data.serverName,
+                    textChannels: ['general'],
+                    voiceChannels: ['voice-1']
+                };
+                
+                servers.set(serverId, newServer);
+                
+                channels.set(`${serverId}-general`, {
+                    id: 'general',
+                    name: 'общий',
+                    type: 'text',
+                    messages: [],
+                    serverId: serverId
+                });
+                
+                voiceRooms.set(`${serverId}-voice-1`, {
+                    id: 'voice-1',
+                    name: 'Голосовая',
+                    serverId: serverId,
+                    members: []
+                });
+                
+                broadcastToServer(serverId, {
+                    type: 'serverCreated',
+                    server: {
+                        id: serverId,
+                        name: newServer.name,
+                        textChannels: [{
+                            id: 'general',
+                            name: 'общий',
+                            type: 'text'
+                        }],
+                        voiceChannels: [{
+                            id: 'voice-1',
+                            name: 'Голосовая',
+                            type: 'voice',
+                            members: []
+                        }]
+                    }
+                });
+            }
+
+            // Создание канала
+            if (data.type === 'createChannel') {
+                const server = servers.get(data.serverId);
+                if (server) {
+                    const channelId = `channel-${Date.now()}`;
+                    
+                    if (data.channelType === 'text') {
+                        server.textChannels.push(channelId);
+                        channels.set(`${data.serverId}-${channelId}`, {
+                            id: channelId,
+                            name: data.channelName,
+                            type: 'text',
+                            messages: [],
+                            serverId: data.serverId
+                        });
+                    } else {
+                        server.voiceChannels.push(channelId);
+                        voiceRooms.set(`${data.serverId}-${channelId}`, {
+                            id: channelId,
+                            name: data.channelName,
+                            serverId: data.serverId,
+                            members: []
+                        });
+                    }
+                    
+                    broadcastToServer(data.serverId, {
+                        type: 'channelCreated',
+                        serverId: data.serverId,
+                        channel: {
+                            id: channelId,
+                            name: data.channelName,
+                            type: data.channelType,
+                            members: []
                         }
                     });
                 }
             }
 
-            // Создание нового сервера
-            if (data.type === 'createServer' && clientData) {
-                const serverId = `server-${Date.now()}`;
-                const newServer = {
-                    id: serverId,
-                    name: data.serverName,
-                    channels: ['general']
-                };
-                
-                servers.set(serverId, newServer);
-                channels.set(`${serverId}-general`, {
-                    id: 'general',
-                    name: 'общий',
-                    messages: [],
-                    serverId: serverId
-                });
-                
-                const broadcast = JSON.stringify({
-                    type: 'serverCreated',
-                    server: newServer
-                });
-                
-                clients.forEach((userData, client) => {
-                    if (client.readyState === WebSocket.OPEN) {
-                        client.send(broadcast);
+            // Удаление канала
+            if (data.type === 'deleteChannel') {
+                const server = servers.get(data.serverId);
+                if (server) {
+                    if (data.channelType === 'text') {
+                        server.textChannels = server.textChannels.filter(id => id !== data.channelId);
+                        channels.delete(`${data.serverId}-${data.channelId}`);
+                    } else {
+                        server.voiceChannels = server.voiceChannels.filter(id => id !== data.channelId);
+                        voiceRooms.delete(`${data.serverId}-${data.channelId}`);
                     }
+                    
+                    broadcastToServer(data.serverId, {
+                        type: 'channelDeleted',
+                        serverId: data.serverId,
+                        channelId: data.channelId,
+                        channelType: data.channelType
+                    });
+                }
+            }
+
+            // Переименование канала
+            if (data.type === 'renameChannel') {
+                if (data.channelType === 'text') {
+                    const channel = channels.get(`${data.serverId}-${data.channelId}`);
+                    if (channel) {
+                        channel.name = data.newName;
+                    }
+                } else {
+                    const room = voiceRooms.get(`${data.serverId}-${data.channelId}`);
+                    if (room) {
+                        room.name = data.newName;
+                    }
+                }
+                
+                broadcastToServer(data.serverId, {
+                    type: 'channelRenamed',
+                    serverId: data.serverId,
+                    channelId: data.channelId,
+                    channelType: data.channelType,
+                    newName: data.newName
                 });
             }
 
-            // Приватное сообщение
-            if (data.type === 'privateMessage' && clientData) {
+            // Присоединение к голосовому каналу
+            if (data.type === 'voiceJoin') {
+                const roomKey = `${data.serverId}-${data.channelId}`;
+                const room = voiceRooms.get(roomKey);
+                
+                if (room) {
+                    // Удаляем из предыдущей комнаты
+                    if (clientData.voiceChannel) {
+                        const oldRoom = voiceRooms.get(clientData.voiceChannel);
+                        if (oldRoom) {
+                            oldRoom.members = oldRoom.members.filter(m => m !== clientData.username);
+                        }
+                    }
+                    
+                    // Добавляем в новую
+                    if (!room.members.includes(clientData.username)) {
+                        room.members.push(clientData.username);
+                    }
+                    clientData.voiceChannel = roomKey;
+                    
+                    broadcastToServer(data.serverId, {
+                        type: 'voiceUpdate',
+                        serverId: data.serverId,
+                        channelId: data.channelId,
+                        members: room.members
+                    });
+                    
+                    broadcastUserList();
+                }
+            }
+
+            // Выход из голосового канала
+            if (data.type === 'voiceLeave') {
+                if (clientData.voiceChannel) {
+                    const room = voiceRooms.get(clientData.voiceChannel);
+                    if (room) {
+                        room.members = room.members.filter(m => m !== clientData.username);
+                        
+                        broadcastToServer(room.serverId, {
+                            type: 'voiceUpdate',
+                            serverId: room.serverId,
+                            channelId: room.id,
+                            members: room.members
+                        });
+                    }
+                    clientData.voiceChannel = null;
+                    broadcastUserList();
+                }
+            }
+
+            // WebRTC сигналинг
+            if (data.type === 'webrtc-offer' || data.type === 'webrtc-answer' || data.type === 'webrtc-ice') {
+                const targetWs = findClientByUsername(data.target);
+                if (targetWs && targetWs.readyState === WebSocket.OPEN) {
+                    targetWs.send(JSON.stringify({
+                        ...data,
+                        from: clientData.username
+                    }));
+                }
+            }
+
+            // Приватные сообщения
+            if (data.type === 'privateMessage') {
                 const recipientWs = findClientByUsername(data.recipientUsername);
                 
-                const privateMsg = JSON.stringify({
+                const privateMsg = {
                     type: 'privateMessage',
                     from: clientData.username,
                     to: data.recipientUsername,
                     text: data.text,
                     time: new Date().toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' }),
                     fromId: clientData.id
-                });
+                };
 
-                // Отправляем получателю
                 if (recipientWs && recipientWs.readyState === WebSocket.OPEN) {
-                    recipientWs.send(privateMsg);
+                    recipientWs.send(JSON.stringify(privateMsg));
                 }
 
-                // Отправляем отправителю (для истории)
-                ws.send(privateMsg);
-
-                console.log(`Приватное сообщение: ${clientData.username} -> ${data.recipientUsername}`);
-            }
-
-            // Обновление статуса голосовой комнаты
-            if (data.type === 'voiceJoin' && clientData) {
-                const voiceMessage = JSON.stringify({
-                    type: 'voiceJoin',
-                    username: clientData.username,
-                    time: new Date().toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })
-                });
-
-                clients.forEach((userData, client) => {
-                    if (client.readyState === WebSocket.OPEN) {
-                        client.send(voiceMessage);
-                    }
-                });
-            }
-
-            if (data.type === 'voiceLeave' && clientData) {
-                const voiceMessage = JSON.stringify({
-                    type: 'voiceLeave',
-                    username: clientData.username,
-                    time: new Date().toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })
-                });
-
-                clients.forEach((userData, client) => {
-                    if (client.readyState === WebSocket.OPEN) {
-                        client.send(voiceMessage);
-                    }
-                });
+                ws.send(JSON.stringify(privateMsg));
             }
 
         } catch (error) {
-            console.error('Ошибка обработки сообщения:', error);
+            console.error('❌ Ошибка обработки сообщения:', error);
         }
     });
 
     ws.on('close', () => {
         if (clientData) {
-            console.log(`${clientData.username} отключился`);
+            console.log(`👋 ${clientData.username} отключился`);
             
-            // Уведомляем всех об отключении
-            const leaveMessage = JSON.stringify({
-                type: 'system',
-                author: 'Система',
-                text: `${clientData.username} покинул чат 👋`,
-                time: new Date().toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })
-            });
-
-            clients.forEach((userData, client) => {
-                if (client.readyState === WebSocket.OPEN) {
-                    client.send(leaveMessage);
+            // Удаляем из голосовой комнаты
+            if (clientData.voiceChannel) {
+                const room = voiceRooms.get(clientData.voiceChannel);
+                if (room) {
+                    room.members = room.members.filter(m => m !== clientData.username);
+                    broadcastToServer(room.serverId, {
+                        type: 'voiceUpdate',
+                        serverId: room.serverId,
+                        channelId: room.id,
+                        members: room.members
+                    });
                 }
-            });
+            }
         }
 
         clients.delete(ws);
@@ -280,12 +458,11 @@ wss.on('connection', (ws) => {
     });
 
     ws.on('error', (error) => {
-        console.error('WebSocket ошибка:', error);
+        console.error('❌ WebSocket ошибка:', error);
     });
 });
 
 server.listen(PORT, () => {
     console.log(`🚀 Сервер запущен на http://localhost:${PORT}`);
     console.log('🇷🇺 РусЧат готов к работе!');
-    console.log('Для остановки нажмите Ctrl+C');
 });

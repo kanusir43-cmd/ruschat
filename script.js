@@ -1,21 +1,27 @@
+// ===== ГЛОБАЛЬНЫЕ ПЕРЕМЕННЫЕ =====
 let currentUser = null;
 let ws = null;
 let onlineUsers = [];
-let currentDMUser = null;
-let dmConversations = new Map();
 let servers = new Map();
-let channels = new Map();
 let currentServerId = 'default-server';
 let currentChannelId = 'general';
 let channelMessages = new Map();
-let userAvatar = null;
-let isInVoiceChannel = false;
-let audioStream = null;
-let audioContext = null;
-let analyser = null;
-let microphone = null;
+let dmConversations = new Map();
+let currentDMUser = null;
 
-// Проверка российского номера телефона
+// WebRTC
+let peerConnections = new Map();
+let localStream = null;
+let screenStream = null;
+let isInVoiceChannel = false;
+let currentVoiceChannel = null;
+
+// UI
+let userAvatar = null;
+let groups = [];
+let groupAvatars = {};
+
+// ===== АУТЕНТИФИКАЦИЯ =====
 function isRussianPhone(phone) {
     return phone.startsWith('+7') && phone.length >= 12;
 }
@@ -25,12 +31,12 @@ function login() {
     const phone = document.getElementById('phone').value.trim();
     
     if (!username) {
-        alert('Введите имя пользователя');
+        showNotification('Введите имя пользователя', 'error');
         return;
     }
     
     if (!isRussianPhone(phone)) {
-        alert('Доступ разрешен только для российских номеров (+7)');
+        showNotification('Доступ только для российских номеров (+7)', 'error');
         return;
     }
     
@@ -43,7 +49,6 @@ function login() {
     document.getElementById('auth-screen').classList.remove('active');
     document.getElementById('chat-screen').classList.add('active');
     
-    initializeServers();
     connectWebSocket();
     loadUserData();
 }
@@ -58,18 +63,15 @@ function logout() {
     }
     
     currentUser = null;
-    onlineUsers = [];
-    dmConversations.clear();
     servers.clear();
-    channels.clear();
     channelMessages.clear();
     
     document.getElementById('chat-screen').classList.remove('active');
     document.getElementById('auth-screen').classList.add('active');
-    document.getElementById('username').value = '';
-    document.getElementById('phone').value = '';
 }
 
+
+// ===== WEBSOCKET =====
 function connectWebSocket() {
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     const wsUrl = `${protocol}//${window.location.host}`;
@@ -78,7 +80,6 @@ function connectWebSocket() {
     
     ws.onopen = () => {
         console.log('✅ WebSocket подключен');
-        
         ws.send(JSON.stringify({
             type: 'auth',
             username: currentUser.username,
@@ -90,62 +91,7 @@ function connectWebSocket() {
     ws.onmessage = (event) => {
         try {
             const data = JSON.parse(event.data);
-            
-            if (data.type === 'authSuccess') {
-                console.log('✅ Аутентификация успешна');
-            }
-            
-            if (data.type === 'userList') {
-                onlineUsers = data.users;
-                updateMembersList();
-            }
-            
-            if (data.type === 'message') {
-                if (!channelMessages.has(data.channelId)) {
-                    channelMessages.set(data.channelId, []);
-                }
-                channelMessages.get(data.channelId).push(data);
-                
-                if (data.channelId === currentChannelId) {
-                    displayMessage(data);
-                }
-            }
-            
-            if (data.type === 'serverCreated') {
-                servers.set(data.server.id, data.server);
-                channels.set(`${data.server.id}-general`, {
-                    id: 'general',
-                    name: 'общий',
-                    messages: [],
-                    serverId: data.server.id
-                });
-                updateServersList();
-            }
-            
-            if (data.type === 'privateMessage') {
-                const conversationKey = data.from === currentUser.username ? data.to : data.from;
-                
-                if (!dmConversations.has(conversationKey)) {
-                    dmConversations.set(conversationKey, []);
-                }
-                
-                dmConversations.get(conversationKey).push({
-                    from: data.from,
-                    text: data.text,
-                    time: data.time
-                });
-                
-                if (currentDMUser === conversationKey) {
-                    displayPrivateMessage(data.from, data.text, data.time);
-                } else {
-                    showDMNotification(data.from);
-                }
-            }
-            
-            if (data.type === 'error') {
-                alert(data.message);
-            }
-            
+            handleWebSocketMessage(data);
         } catch (error) {
             console.error('Ошибка обработки сообщения:', error);
         }
@@ -153,40 +99,372 @@ function connectWebSocket() {
     
     ws.onerror = (error) => {
         console.error('❌ WebSocket ошибка:', error);
+        showNotification('Ошибка подключения к серверу', 'error');
     };
     
     ws.onclose = () => {
         console.log('❌ WebSocket отключен');
+        setTimeout(() => {
+            if (currentUser) connectWebSocket();
+        }, 3000);
     };
 }
 
-function updateMembersList() {
-    const membersList = document.getElementById('membersList');
-    membersList.innerHTML = '';
-    
-    onlineUsers.forEach(user => {
-        const memberEl = document.createElement('div');
-        memberEl.className = 'member';
-        memberEl.style.cursor = 'pointer';
-        memberEl.onclick = () => openDMWithUser(user.username);
-        memberEl.innerHTML = `
-            <span class="status online"></span>
-            <span class="member-name">${user.username}</span>
-        `;
-        membersList.appendChild(memberEl);
-    });
-    
-    const memberCount = document.getElementById('memberCount');
-    if (memberCount) {
-        memberCount.textContent = onlineUsers.length;
+function handleWebSocketMessage(data) {
+    switch(data.type) {
+        case 'authSuccess':
+            handleAuthSuccess(data);
+            break;
+        case 'userList':
+            onlineUsers = data.users;
+            updateMembersList();
+            updateVoiceChannelMembers();
+            break;
+        case 'message':
+            handleMessage(data);
+            break;
+        case 'serverCreated':
+            handleServerCreated(data);
+            break;
+        case 'channelCreated':
+            handleChannelCreated(data);
+            break;
+        case 'channelDeleted':
+            handleChannelDeleted(data);
+            break;
+        case 'channelRenamed':
+            handleChannelRenamed(data);
+            break;
+        case 'voiceUpdate':
+            handleVoiceUpdate(data);
+            break;
+        case 'privateMessage':
+            handlePrivateMessage(data);
+            break;
+        case 'webrtc-offer':
+        case 'webrtc-answer':
+        case 'webrtc-ice':
+            handleWebRTC(data);
+            break;
+        case 'error':
+            showNotification(data.message, 'error');
+            break;
     }
 }
 
+function handleAuthSuccess(data) {
+    servers.clear();
+    data.servers.forEach(server => {
+        servers.set(server.id, server);
+    });
+    updateServersList();
+    selectServer(currentServerId);
+    showNotification(`Добро пожаловать, ${currentUser.username}!`, 'success');
+}
+
+function handleMessage(data) {
+    const key = `${data.serverId}-${data.channelId}`;
+    if (!channelMessages.has(key)) {
+        channelMessages.set(key, []);
+    }
+    channelMessages.get(key).push(data);
+    
+    if (data.serverId === currentServerId && data.channelId === currentChannelId) {
+        displayMessage(data);
+    }
+}
+
+function handleServerCreated(data) {
+    servers.set(data.server.id, data.server);
+    updateServersList();
+    showNotification('Сервер создан!', 'success');
+}
+
+function handleChannelCreated(data) {
+    const server = servers.get(data.serverId);
+    if (server) {
+        if (data.channel.type === 'text') {
+            server.textChannels.push(data.channel);
+        } else {
+            server.voiceChannels.push(data.channel);
+        }
+        if (data.serverId === currentServerId) {
+            updateChannelsList();
+        }
+    }
+}
+
+function handleChannelDeleted(data) {
+    const server = servers.get(data.serverId);
+    if (server) {
+        if (data.channelType === 'text') {
+            server.textChannels = server.textChannels.filter(c => c.id !== data.channelId);
+        } else {
+            server.voiceChannels = server.voiceChannels.filter(c => c.id !== data.channelId);
+        }
+        if (data.serverId === currentServerId) {
+            updateChannelsList();
+        }
+    }
+}
+
+function handleChannelRenamed(data) {
+    const server = servers.get(data.serverId);
+    if (server) {
+        const channels = data.channelType === 'text' ? server.textChannels : server.voiceChannels;
+        const channel = channels.find(c => c.id === data.channelId);
+        if (channel) {
+            channel.name = data.newName;
+            if (data.serverId === currentServerId) {
+                updateChannelsList();
+            }
+        }
+    }
+}
+
+function handleVoiceUpdate(data) {
+    const server = servers.get(data.serverId);
+    if (server) {
+        const channel = server.voiceChannels.find(c => c.id === data.channelId);
+        if (channel) {
+            channel.members = data.members;
+            if (data.serverId === currentServerId) {
+                updateVoiceChannelMembers();
+            }
+        }
+    }
+}
+
+function handlePrivateMessage(data) {
+    const conversationKey = data.from === currentUser.username ? data.to : data.from;
+    
+    if (!dmConversations.has(conversationKey)) {
+        dmConversations.set(conversationKey, []);
+    }
+    
+    dmConversations.get(conversationKey).push(data);
+    
+    if (currentDMUser === conversationKey) {
+        displayPrivateMessage(data.from, data.text, data.time);
+    } else if (data.from !== currentUser.username) {
+        showDMNotification(data.from);
+    }
+}
+
+
+// ===== UI - СЕРВЕРЫ И КАНАЛЫ =====
+function updateServersList() {
+    const serverList = document.querySelector('.server-list');
+    serverList.innerHTML = '';
+    
+    servers.forEach((server, serverId) => {
+        const serverEl = document.createElement('div');
+        serverEl.className = `server ${serverId === currentServerId ? 'active' : ''}`;
+        serverEl.onclick = () => selectServer(serverId);
+        serverEl.oncontextmenu = (e) => {
+            e.preventDefault();
+            showServerContextMenu(e, serverId);
+        };
+        serverEl.innerHTML = `<span>${server.name.charAt(0).toUpperCase()}</span>`;
+        serverList.appendChild(serverEl);
+    });
+    
+    const addBtn = document.createElement('div');
+    addBtn.className = 'add-server';
+    addBtn.onclick = createServer;
+    addBtn.innerHTML = '+';
+    serverList.appendChild(addBtn);
+}
+
+function selectServer(serverId) {
+    currentServerId = serverId;
+    const server = servers.get(serverId);
+    if (server && server.textChannels.length > 0) {
+        currentChannelId = server.textChannels[0].id;
+    }
+    updateServersList();
+    updateChannelsList();
+    loadMessages();
+}
+
+function updateChannelsList() {
+    const server = servers.get(currentServerId);
+    if (!server) return;
+    
+    const channelsContainer = document.querySelector('.channels');
+    channelsContainer.innerHTML = `
+        <div class="server-header" onclick="showServerSettings()">
+            <span class="server-name">${server.name}</span>
+            <span class="server-settings-icon">⚙️</span>
+        </div>
+    `;
+    
+    // Текстовые каналы
+    const textSection = document.createElement('div');
+    textSection.innerHTML = `
+        <div class="channel-category">
+            <span>ТЕКСТОВЫЕ КАНАЛЫ</span>
+            <span class="add-channel-btn" onclick="createChannel('text')">+</span>
+        </div>
+    `;
+    channelsContainer.appendChild(textSection);
+    
+    server.textChannels.forEach(channel => {
+        const channelEl = document.createElement('div');
+        channelEl.className = `channel ${channel.id === currentChannelId ? 'active' : ''}`;
+        channelEl.onclick = () => selectChannel(channel.id);
+        channelEl.oncontextmenu = (e) => {
+            e.preventDefault();
+            showChannelContextMenu(e, channel.id, 'text');
+        };
+        channelEl.innerHTML = `<span>#</span> ${channel.name}`;
+        channelsContainer.appendChild(channelEl);
+    });
+    
+    // Голосовые каналы
+    const voiceSection = document.createElement('div');
+    voiceSection.innerHTML = `
+        <div class="channel-category">
+            <span>ГОЛОСОВЫЕ КАНАЛЫ</span>
+            <span class="add-channel-btn" onclick="createChannel('voice')">+</span>
+        </div>
+    `;
+    channelsContainer.appendChild(voiceSection);
+    
+    server.voiceChannels.forEach(channel => {
+        const channelEl = document.createElement('div');
+        channelEl.className = `channel voice ${currentVoiceChannel === channel.id ? 'connected' : ''}`;
+        channelEl.onclick = () => toggleVoiceChannel(channel.id);
+        channelEl.oncontextmenu = (e) => {
+            e.preventDefault();
+            showChannelContextMenu(e, channel.id, 'voice');
+        };
+        channelEl.innerHTML = `
+            <div class="voice-channel-header">
+                <span>🔊</span> ${channel.name}
+            </div>
+            <div class="voice-members" id="voice-members-${channel.id}"></div>
+        `;
+        channelsContainer.appendChild(channelEl);
+    });
+    
+    updateVoiceChannelMembers();
+}
+
+function selectChannel(channelId) {
+    currentChannelId = channelId;
+    updateChannelsList();
+    loadMessages();
+    document.querySelector('.channel-name').textContent = `# ${channelId}`;
+}
+
+function updateVoiceChannelMembers() {
+    const server = servers.get(currentServerId);
+    if (!server) return;
+    
+    server.voiceChannels.forEach(channel => {
+        const membersDiv = document.getElementById(`voice-members-${channel.id}`);
+        if (membersDiv && channel.members) {
+            membersDiv.innerHTML = '';
+            channel.members.forEach(member => {
+                const memberEl = document.createElement('div');
+                memberEl.className = 'voice-member';
+                memberEl.innerHTML = `
+                    <span class="status speaking"></span>
+                    <span>${member}</span>
+                `;
+                membersDiv.appendChild(memberEl);
+            });
+        }
+    });
+}
+
+function createServer() {
+    const name = prompt('Введите название сервера:');
+    if (name && name.trim() && ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({
+            type: 'createServer',
+            serverName: name.trim()
+        }));
+    }
+}
+
+function createChannel(type) {
+    const name = prompt(`Введите название ${type === 'text' ? 'текстового' : 'голосового'} канала:`);
+    if (name && name.trim() && ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({
+            type: 'createChannel',
+            serverId: currentServerId,
+            channelName: name.trim(),
+            channelType: type
+        }));
+    }
+}
+
+function showServerContextMenu(e, serverId) {
+    const menu = document.createElement('div');
+    menu.className = 'context-menu';
+    menu.style.left = e.pageX + 'px';
+    menu.style.top = e.pageY + 'px';
+    menu.innerHTML = `
+        <div class="context-menu-item" onclick="showServerSettings()">⚙️ Настройки сервера</div>
+        <div class="context-menu-item danger" onclick="deleteServer('${serverId}')">🗑️ Удалить сервер</div>
+    `;
+    document.body.appendChild(menu);
+    
+    setTimeout(() => {
+        document.addEventListener('click', () => menu.remove(), { once: true });
+    }, 0);
+}
+
+function showChannelContextMenu(e, channelId, type) {
+    const menu = document.createElement('div');
+    menu.className = 'context-menu';
+    menu.style.left = e.pageX + 'px';
+    menu.style.top = e.pageY + 'px';
+    menu.innerHTML = `
+        <div class="context-menu-item" onclick="renameChannel('${channelId}', '${type}')">✏️ Переименовать</div>
+        <div class="context-menu-item danger" onclick="deleteChannel('${channelId}', '${type}')">🗑️ Удалить канал</div>
+    `;
+    document.body.appendChild(menu);
+    
+    setTimeout(() => {
+        document.addEventListener('click', () => menu.remove(), { once: true });
+    }, 0);
+}
+
+function renameChannel(channelId, type) {
+    const newName = prompt('Введите новое название:');
+    if (newName && newName.trim() && ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({
+            type: 'renameChannel',
+            serverId: currentServerId,
+            channelId: channelId,
+            channelType: type,
+            newName: newName.trim()
+        }));
+    }
+}
+
+function deleteChannel(channelId, type) {
+    if (confirm('Удалить этот канал?') && ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({
+            type: 'deleteChannel',
+            serverId: currentServerId,
+            channelId: channelId,
+            channelType: type
+        }));
+    }
+}
+
+
+// ===== СООБЩЕНИЯ =====
 function loadMessages() {
     const messagesDiv = document.getElementById('messages');
     messagesDiv.innerHTML = '';
     
-    const messages = channelMessages.get(currentChannelId) || [];
+    const key = `${currentServerId}-${currentChannelId}`;
+    const messages = channelMessages.get(key) || [];
     messages.forEach(msg => displayMessage(msg));
 }
 
@@ -221,14 +499,15 @@ function sendMessage() {
     
     if (!text || !ws || ws.readyState !== WebSocket.OPEN) {
         if (!text) return;
-        alert('Нет соединения с сервером');
+        showNotification('Нет соединения с сервером', 'error');
         return;
     }
     
     ws.send(JSON.stringify({
         type: 'message',
         text: text,
-        channelId: currentChannelId
+        channelId: currentChannelId,
+        serverId: currentServerId
     }));
     
     input.value = '';
@@ -240,148 +519,245 @@ function handleKeyPress(event) {
     }
 }
 
-function getRandomColor(str) {
-    const colors = ['#5865f2', '#3ba55d', '#faa61a', '#ed4245', '#eb459e', '#57f287'];
-    let hash = 0;
-    for (let i = 0; i < str.length; i++) {
-        hash = str.charCodeAt(i) + ((hash << 5) - hash);
+// ===== УЧАСТНИКИ =====
+function updateMembersList() {
+    const membersList = document.getElementById('membersList');
+    membersList.innerHTML = '';
+    
+    onlineUsers.forEach(user => {
+        const memberEl = document.createElement('div');
+        memberEl.className = 'member';
+        memberEl.style.cursor = 'pointer';
+        memberEl.onclick = () => openDMWithUser(user.username);
+        
+        const statusClass = user.voiceChannel ? 'voice' : 'online';
+        
+        memberEl.innerHTML = `
+            <span class="status ${statusClass}"></span>
+            <span class="member-name">${user.username}</span>
+            ${user.voiceChannel ? '<span class="voice-indicator">🎤</span>' : ''}
+        `;
+        membersList.appendChild(memberEl);
+    });
+    
+    const memberCount = document.getElementById('memberCount');
+    if (memberCount) {
+        memberCount.textContent = onlineUsers.length;
     }
-    return colors[Math.abs(hash) % colors.length];
 }
 
-function escapeHtml(text) {
-    const div = document.createElement('div');
-    div.textContent = text;
-    return div.innerHTML;
-}
-
-// ===== СЕРВЕРЫ И КАНАЛЫ =====
-
-function initializeServers() {
-    servers.set('default-server', {
-        id: 'default-server',
-        name: 'РусЧат',
-        channels: ['general', 'news', 'stocks']
-    });
-    
-    channels.set('default-server-general', {
-        id: 'general',
-        name: 'общий',
-        messages: [],
-        serverId: 'default-server'
-    });
-    
-    channels.set('default-server-news', {
-        id: 'news',
-        name: 'новости',
-        message: [],
-        serverId: 'default-server'
-    });
-    
-    channels.set('default-server-stocks', {
-        id: 'stocks',
-        name: 'акции',
-        messages: [],
-        serverId: 'default-server'
-    });
-    
-    updateServersList();
-    updateChannelsList();
-}
-
-function updateServersList() {
-    const serverList = document.querySelector('.server-list');
-    serverList.innerHTML = '';
-    
-    servers.forEach((server, serverId) => {
-        const serverEl = document.createElement('div');
-        serverEl.className = `server ${serverId === currentServerId ? 'active' : ''}`;
-        serverEl.onclick = () => selectServer(serverId);
-        serverEl.innerHTML = `<span>${server.name.charAt(0).toUpperCase()}</span>`;
-        serverList.appendChild(serverEl);
-    });
-    
-    const addBtn = document.createElement('div');
-    addBtn.className = 'add-server';
-    addBtn.onclick = createServer;
-    addBtn.innerHTML = '+';
-    serverList.appendChild(addBtn);
-}
-
-function selectServer(serverId) {
-    currentServerId = serverId;
-    currentChannelId = 'general';
-    updateServersList();
-    updateChannelsList();
-    loadMessages();
-}
-
-function updateChannelsList() {
-    const server = servers.get(currentServerId);
-    if (!server) return;
-    
-    const channelsContainer = document.querySelector('.channels');
-    let channelList = channelsContainer.querySelector('.channel-list');
-    
-    if (!channelList) {
-        channelList = document.createElement('div');
-        channelList.className = 'channel-list';
-        channelsContainer.appendChild(channelList);
+// ===== WEBRTC - ГОЛОСОВОЙ ЧАТ =====
+async function toggleVoiceChannel(channelId) {
+    if (currentVoiceChannel === channelId) {
+        leaveVoiceChannel();
+    } else {
+        await joinVoiceChannel(channelId);
     }
-    
-    channelList.innerHTML = `
-        <div class="server-name" onclick="showServerSettings()">
-            <span id="currentServerName">${server.name}</span>
-            <span class="server-settings-icon">⚙️</span>
-        </div>
-        <div class="channel-category">ТЕКСТОВЫЕ КАНАЛЫ</div>
-    `;
-    
-    server.channels.forEach(channelId => {
-        const channel = channels.get(`${currentServerId}-${channelId}`);
-        if (channel) {
-            const channelEl = document.createElement('div');
-            channelEl.className = `channel ${channelId === currentChannelId ? 'active' : ''}`;
-            channelEl.onclick = () => selectChannel(channelId);
-            channelEl.innerHTML = `<span>#</span> ${channel.name}`;
-            channelList.appendChild(channelEl);
-        }
-    });
-    
-    const voiceSection = document.createElement('div');
-    voiceSection.innerHTML = `
-        <div class="channel-category">ГОЛОСОВЫЕ КАНАЛЫ</div>
-        <div class="channel voice" onclick="toggleVoiceChannel()">
-            <span>🔊</span> Общая комната
-        </div>
-    `;
-    channelList.appendChild(voiceSection);
 }
 
-function selectChannel(channelId) {
-    currentChannelId = channelId;
-    updateChannelsList();
-    loadMessages();
-    document.querySelector('.channel-name').textContent = `# ${currentChannelId}`;
-}
-
-function createServer() {
-    const name = prompt('Введите название сервера:');
-    if (name && name.trim()) {
+async function joinVoiceChannel(channelId) {
+    try {
+        localStream = await navigator.mediaDevices.getUserMedia({ 
+            audio: {
+                echoCancellation: true,
+                noiseSuppression: true,
+                autoGainControl: true
+            },
+            video: false
+        });
+        
+        isInVoiceChannel = true;
+        currentVoiceChannel = channelId;
+        
         if (ws && ws.readyState === WebSocket.OPEN) {
             ws.send(JSON.stringify({
-                type: 'createServer',
-                serverName: name.trim()
+                type: 'voiceJoin',
+                serverId: currentServerId,
+                channelId: channelId
             }));
+        }
+        
+        updateChannelsList();
+        document.getElementById('voiceControls').classList.add('active');
+        
+        // Подключаемся к другим участникам
+        const server = servers.get(currentServerId);
+        const channel = server.voiceChannels.find(c => c.id === channelId);
+        if (channel && channel.members) {
+            channel.members.forEach(member => {
+                if (member !== currentUser.username) {
+                    createPeerConnection(member, true);
+                }
+            });
+        }
+        
+        showNotification('Подключено к голосовому каналу', 'success');
+        
+    } catch (error) {
+        console.error('Ошибка доступа к микрофону:', error);
+        showNotification('Не удалось получить доступ к микрофону', 'error');
+    }
+}
+
+function leaveVoiceChannel() {
+    if (localStream) {
+        localStream.getTracks().forEach(track => track.stop());
+        localStream = null;
+    }
+    
+    peerConnections.forEach(pc => pc.close());
+    peerConnections.clear();
+    
+    if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({
+            type: 'voiceLeave'
+        }));
+    }
+    
+    isInVoiceChannel = false;
+    currentVoiceChannel = null;
+    
+    updateChannelsList();
+    document.getElementById('voiceControls').classList.remove('active');
+    showNotification('Отключено от голосового канала', 'info');
+}
+
+function createPeerConnection(username, isInitiator) {
+    const pc = new RTCPeerConnection({
+        iceServers: [
+            { urls: 'stun:stun.l.google.com:19302' },
+            { urls: 'stun:stun1.l.google.com:19302' }
+        ]
+    });
+    
+    if (localStream) {
+        localStream.getTracks().forEach(track => {
+            pc.addTrack(track, localStream);
+        });
+    }
+    
+    pc.ontrack = (event) => {
+        const audio = new Audio();
+        audio.srcObject = event.streams[0];
+        audio.play();
+    };
+    
+    pc.onicecandidate = (event) => {
+        if (event.candidate && ws && ws.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify({
+                type: 'webrtc-ice',
+                target: username,
+                candidate: event.candidate
+            }));
+        }
+    };
+    
+    peerConnections.set(username, pc);
+    
+    if (isInitiator) {
+        pc.createOffer().then(offer => {
+            pc.setLocalDescription(offer);
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify({
+                    type: 'webrtc-offer',
+                    target: username,
+                    offer: offer
+                }));
+            }
+        });
+    }
+    
+    return pc;
+}
+
+function handleWebRTC(data) {
+    if (data.type === 'webrtc-offer') {
+        const pc = createPeerConnection(data.from, false);
+        pc.setRemoteDescription(new RTCSessionDescription(data.offer));
+        pc.createAnswer().then(answer => {
+            pc.setLocalDescription(answer);
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify({
+                    type: 'webrtc-answer',
+                    target: data.from,
+                    answer: answer
+                }));
+            }
+        });
+    } else if (data.type === 'webrtc-answer') {
+        const pc = peerConnections.get(data.from);
+        if (pc) {
+            pc.setRemoteDescription(new RTCSessionDescription(data.answer));
+        }
+    } else if (data.type === 'webrtc-ice') {
+        const pc = peerConnections.get(data.from);
+        if (pc) {
+            pc.addIceCandidate(new RTCIceCandidate(data.candidate));
         }
     }
 }
 
-// ===== ПРИВАТНЫЕ СООБЩЕНИЯ (ДМ) =====
+function toggleMute() {
+    if (!localStream) return;
+    
+    const audioTrack = localStream.getAudioTracks()[0];
+    audioTrack.enabled = !audioTrack.enabled;
+    
+    const btn = document.getElementById('muteBtn');
+    btn.innerHTML = audioTrack.enabled ? '<span>🎤</span> Выключить микрофон' : '<span>🔇</span> Включить микрофон';
+    btn.classList.toggle('muted', !audioTrack.enabled);
+}
 
+async function shareScreen() {
+    try {
+        screenStream = await navigator.mediaDevices.getDisplayMedia({
+            video: {
+                cursor: 'always',
+                width: { ideal: 1280 },
+                height: { ideal: 720 },
+                frameRate: { ideal: 20 }
+            },
+            audio: false
+        });
+        
+        // Заменяем видео трек в существующих соединениях
+        peerConnections.forEach(pc => {
+            const sender = pc.getSenders().find(s => s.track && s.track.kind === 'video');
+            if (sender) {
+                sender.replaceTrack(screenStream.getVideoTracks()[0]);
+            } else {
+                pc.addTrack(screenStream.getVideoTracks()[0], screenStream);
+            }
+        });
+        
+        screenStream.getVideoTracks()[0].onended = () => {
+            stopScreenShare();
+        };
+        
+        document.getElementById('screenShareBtn').innerHTML = '<span>🖥️</span> Остановить демонстрацию';
+        showNotification('Демонстрация экрана началась', 'success');
+        
+    } catch (error) {
+        console.error('Ошибка демонстрации экрана:', error);
+        showNotification('Не удалось начать демонстрацию экрана', 'error');
+    }
+}
+
+function stopScreenShare() {
+    if (screenStream) {
+        screenStream.getTracks().forEach(track => track.stop());
+        screenStream = null;
+        
+        document.getElementById('screenShareBtn').innerHTML = '<span>🖥️</span> Демонстрация экрана';
+        showNotification('Демонстрация экрана остановлена', 'info');
+    }
+}
+
+
+// ===== ПРИВАТНЫЕ СООБЩЕНИЯ =====
 function openDMWithUser(username) {
     if (username === currentUser.username) {
-        alert('Нельзя писать самому себе 😄');
+        showNotification('Нельзя писать самому себе', 'error');
         return;
     }
     
@@ -405,10 +781,7 @@ function openDMWithUser(username) {
     }
     
     dmModal.classList.add('active');
-    
-    setTimeout(() => {
-        document.getElementById('dmInput').focus();
-    }, 100);
+    setTimeout(() => document.getElementById('dmInput').focus(), 100);
 }
 
 function createDMModal() {
@@ -454,7 +827,7 @@ function sendDM() {
     
     if (!text || !currentDMUser || !ws || ws.readyState !== WebSocket.OPEN) {
         if (!text) return;
-        alert('Нет соединения с сервером');
+        showNotification('Нет соединения с сервером', 'error');
         return;
     }
     
@@ -482,184 +855,51 @@ function closeDM() {
 }
 
 function showDMNotification(username) {
+    showNotification(`${username} отправил вам сообщение`, 'info', () => {
+        openDMWithUser(username);
+    });
+}
+
+// ===== УТИЛИТЫ =====
+function getRandomColor(str) {
+    const colors = ['#5865f2', '#3ba55d', '#faa61a', '#ed4245', '#eb459e', '#57f287'];
+    let hash = 0;
+    for (let i = 0; i < str.length; i++) {
+        hash = str.charCodeAt(i) + ((hash << 5) - hash);
+    }
+    return colors[Math.abs(hash) % colors.length];
+}
+
+function escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+}
+
+function showNotification(message, type = 'info', onClick = null) {
     const notification = document.createElement('div');
-    notification.className = 'dm-notification';
-    notification.innerHTML = `
-        <strong>${username}</strong> отправил вам сообщение
-        <button onclick="openDMWithUser('${username}')">Открыть</button>
-    `;
+    notification.className = `notification notification-${type}`;
+    notification.textContent = message;
+    
+    if (onClick) {
+        notification.style.cursor = 'pointer';
+        notification.onclick = () => {
+            onClick();
+            notification.remove();
+        };
+    }
     
     document.body.appendChild(notification);
     
     setTimeout(() => {
-        notification.remove();
-    }, 5000);
-}
-
-// ===== ГОЛОСОВОЙ ЧАТ И ДЕМОНСТРАЦИЯ ЭКРАНА =====
-
-async function toggleVoiceChannel() {
-    if (!isInVoiceChannel) {
-        await joinVoiceChannel();
-    } else {
-        leaveVoiceChannel();
-    }
-}
-
-async function joinVoiceChannel() {
-    try {
-        audioStream = await navigator.mediaDevices.getUserMedia({ 
-            audio: {
-                echoCancellation: true,
-                noiseSuppression: true,
-                autoGainControl: true
-            } 
-        });
-        
-        isInVoiceChannel = true;
-        
-        audioContext = new (window.AudioContext || window.webkitAudioContext)();
-        analyser = audioContext.createAnalyser();
-        microphone = audioContext.createMediaStreamSource(audioStream);
-        
-        analyser.fftSize = 256;
-        microphone.connect(analyser);
-        
-        updateVoiceChannelUI();
-        document.getElementById('voiceSettings').classList.add('active');
-        
-        if (ws && ws.readyState === WebSocket.OPEN) {
-            ws.send(JSON.stringify({
-                type: 'voiceJoin'
-            }));
-        }
-        
-        visualizeAudio();
-        
-    } catch (error) {
-        console.error('Ошибка доступа к микрофону:', error);
-        alert('Не удалось получить доступ к микрофону');
-    }
-}
-
-function leaveVoiceChannel() {
-    if (audioStream) {
-        audioStream.getTracks().forEach(track => track.stop());
-        audioStream = null;
-    }
+        notification.classList.add('show');
+    }, 10);
     
-    if (audioContext) {
-        audioContext.close();
-        audioContext = null;
-    }
-    
-    isInVoiceChannel = false;
-    analyser = null;
-    microphone = null;
-    
-    updateVoiceChannelUI();
-    document.getElementById('voiceSettings').classList.remove('active');
-    
-    if (ws && ws.readyState === WebSocket.OPEN) {
-        ws.send(JSON.stringify({
-            type: 'voiceLeave'
-        }));
-    }
+    setTimeout(() => {
+        notification.classList.remove('show');
+        setTimeout(() => notification.remove(), 300);
+    }, 3000);
 }
-
-function updateVoiceChannelUI() {
-    const voiceChannel = document.querySelector('.channel.voice');
-    if (isInVoiceChannel) {
-        voiceChannel.classList.add('connected');
-        voiceChannel.innerHTML = `
-            <span>🔊</span> Общая комната
-            <span class="voice-indicator">●</span>
-        `;
-    } else {
-        voiceChannel.classList.remove('connected');
-        voiceChannel.innerHTML = `<span>🔊</span> Общая комната`;
-    }
-}
-
-function visualizeAudio() {
-    if (!analyser || !isInVoiceChannel) return;
-    
-    const dataArray = new Uint8Array(analyser.frequencyBinCount);
-    analyser.getByteFrequencyData(dataArray);
-    
-    requestAnimationFrame(visualizeAudio);
-}
-
-async function shareScreen() {
-    try {
-        const screenStream = await navigator.mediaDevices.getDisplayMedia({
-            video: {
-                cursor: 'always',
-                width: { ideal: 1280 },
-                height: { ideal: 720 },
-                frameRate: { ideal: 20 }
-            },
-            audio: false
-        });
-        
-        const screenModal = document.getElementById('screen-share-modal');
-        if (!screenModal) {
-            createScreenShareModal();
-        }
-        
-        const video = document.getElementById('screenShareVideo');
-        video.srcObject = screenStream;
-        
-        document.getElementById('screen-share-modal').classList.add('active');
-        
-        screenStream.getVideoTracks()[0].onended = () => {
-            stopScreenShare();
-        };
-        
-    } catch (error) {
-        console.error('Ошибка при демонстрации экрана:', error);
-    }
-}
-
-function createScreenShareModal() {
-    const modal = document.createElement('div');
-    modal.id = 'screen-share-modal';
-    modal.className = 'modal screen-share-modal';
-    modal.innerHTML = `
-        <div class="modal-content screen-share-content">
-            <div class="screen-share-header">
-                <span>Демонстрация экрана (720p, 20fps)</span>
-                <button onclick="stopScreenShare()" class="close-btn">✕</button>
-            </div>
-            <video id="screenShareVideo" autoplay playsinline style="width: 100%; height: 100%; object-fit: contain;"></video>
-        </div>
-    `;
-    document.body.appendChild(modal);
-}
-
-function stopScreenShare() {
-    const video = document.getElementById('screenShareVideo');
-    if (video && video.srcObject) {
-        video.srcObject.getTracks().forEach(track => track.stop());
-    }
-    
-    const modal = document.getElementById('screen-share-modal');
-    if (modal) {
-        modal.classList.remove('active');
-    }
-}
-
-function toggleMute() {
-    if (!audioStream) return;
-    
-    const audioTrack = audioStream.getAudioTracks()[0];
-    audioTrack.enabled = !audioTrack.enabled;
-    
-    const btn = event.target;
-    btn.textContent = audioTrack.enabled ? '🎤 Откл./Вкл. микрофон' : '🔇 Микрофон выключен';
-}
-
-// ===== УТИЛИТЫ =====
 
 function loadUserData() {
     const savedAvatar = localStorage.getItem('userAvatar');
@@ -667,563 +907,26 @@ function loadUserData() {
         userAvatar = savedAvatar;
     }
     
-    if (currentUser) {
-        document.getElementById('profileName').textContent = currentUser.username;
-    }
-}
-
-window.onclick = function(event) {
-    if (event.target.classList.contains('modal')) {
-        event.target.classList.remove('active');
-    }
-}
-
-// ===== ПОГОДА =====
-
-function showWeather() {
-    const modal = document.getElementById('weather-modal');
-    if (!modal) {
-        createWeatherModal();
-    }
-    document.getElementById('weather-modal').classList.add('active');
-    loadWeather();
-}
-
-function createWeatherModal() {
-    const modal = document.createElement('div');
-    modal.id = 'weather-modal';
-    modal.className = 'modal';
-    modal.innerHTML = `
-        <div class="modal-content">
-            <span class="close" onclick="closeModal('weather-modal')">&times;</span>
-            <h2>🌤️ Прогноз погоды</h2>
-            <div class="weather-search">
-                <input type="text" id="cityInput" placeholder="Введите город..." value="Москва">
-                <button onclick="loadWeather()">Поиск</button>
-            </div>
-            <div id="weatherContent"></div>
-        </div>
-    `;
-    document.body.appendChild(modal);
-}
-
-function loadWeather() {
-    const city = document.getElementById('cityInput').value.trim() || 'Москва';
-    const weatherContent = document.getElementById('weatherContent');
-    
-    const temp = Math.floor(Math.random() * 30) - 10;
-    const conditions = ['Ясно', 'Облачно', 'Дождь', 'Снег', 'Переменная облачность'];
-    const condition = conditions[Math.floor(Math.random() * conditions.length)];
-    const humidity = Math.floor(Math.random() * 40) + 40;
-    const wind = Math.floor(Math.random() * 15) + 3;
-    
-    const weatherIcons = {
-        'Ясно': '☀️',
-        'Облачно': '☁️',
-        'Дождь': '🌧️',
-        'Снег': '❄️',
-        'Переменная облачность': '⛅'
-    };
-    
-    weatherContent.innerHTML = `
-        <div class="weather-current">
-            <div class="weather-icon">${weatherIcons[condition]}</div>
-            <div class="weather-temp">${temp}°C</div>
-            <div class="weather-condition">${condition}</div>
-            <div class="weather-city">${city}</div>
-        </div>
-        <div class="weather-details">
-            <div class="weather-detail">
-                <span>💧 Влажность</span>
-                <span>${humidity}%</span>
-            </div>
-            <div class="weather-detail">
-                <span>💨 Ветер</span>
-                <span>${wind} м/с</span>
-            </div>
-            <div class="weather-detail">
-                <span>🌡️ Ощущается как</span>
-                <span>${temp - 2}°C</span>
-            </div>
-        </div>
-        <div class="weather-forecast">
-            <h3>Прогноз на неделю</h3>
-            <div class="forecast-days">
-                ${generateForecast()}
-            </div>
-        </div>
-    `;
-}
-
-function generateForecast() {
-    const days = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс'];
-    const icons = ['☀️', '⛅', '☁️', '🌧️', '❄️'];
-    let html = '';
-    
-    for (let i = 0; i < 7; i++) {
-        const temp = Math.floor(Math.random() * 25) - 5;
-        const icon = icons[Math.floor(Math.random() * icons.length)];
-        html += `
-            <div class="forecast-day">
-                <div>${days[i]}</div>
-                <div class="forecast-icon">${icon}</div>
-                <div class="forecast-temp">${temp}°</div>
-            </div>
-        `;
-    }
-    return html;
-}
-
-// ===== АКЦИИ =====
-
-const russianStocks = [
-    { name: 'Газпром', ticker: 'GAZP', price: 175.50, change: 2.3 },
-    { name: 'Сбербанк', ticker: 'SBER', price: 285.20, change: -1.2 },
-    { name: 'Лукойл', ticker: 'LKOH', price: 6420.00, change: 3.5 },
-    { name: 'Яндекс', ticker: 'YNDX', price: 3250.00, change: 1.8 },
-    { name: 'Роснефть', ticker: 'ROSN', price: 545.30, change: -0.5 },
-    { name: 'Норникель', ticker: 'GMKN', price: 15800.00, change: 4.2 }
-];
-
-function showStocks() {
-    const modal = document.getElementById('stocks-modal');
-    if (!modal) {
-        createStocksModal();
-    }
-    document.getElementById('stocks-modal').classList.add('active');
-    updateStocks();
-}
-
-function createStocksModal() {
-    const modal = document.createElement('div');
-    modal.id = 'stocks-modal';
-    modal.className = 'modal';
-    modal.innerHTML = `
-        <div class="modal-content">
-            <span class="close" onclick="closeModal('stocks-modal')">&times;</span>
-            <h2>📈 Российские акции</h2>
-            <div id="stocksList"></div>
-        </div>
-    `;
-    document.body.appendChild(modal);
-}
-
-function updateStocks() {
-    const stocksList = document.getElementById('stocksList');
-    stocksList.innerHTML = '';
-    
-    russianStocks.forEach(stock => {
-        const changeClass = stock.change >= 0 ? 'positive' : 'negative';
-        const changeSign = stock.change >= 0 ? '+' : '';
-        
-        const stockEl = document.createElement('div');
-        stockEl.className = 'stock-item';
-        stockEl.innerHTML = `
-            <div>
-                <div class="stock-name">${stock.name} (${stock.ticker})</div>
-            </div>
-            <div style="text-align: right;">
-                <div class="stock-price">${stock.price.toFixed(2)} ₽</div>
-                <div class="stock-change ${changeClass}">${changeSign}${stock.change}%</div>
-            </div>
-        `;
-        stocksList.appendChild(stockEl);
-    });
-}
-
-// ===== ГРУППЫ =====
-
-let groups = [];
-let currentGroupId = null;
-let groupAvatars = {};
-
-function showGroups() {
-    const modal = document.getElementById('groups-modal');
-    if (!modal) {
-        createGroupsModal();
-    }
-    document.getElementById('groups-modal').classList.add('active');
-    loadGroups();
-}
-
-function createGroupsModal() {
-    const modal = document.createElement('div');
-    modal.id = 'groups-modal';
-    modal.className = 'modal';
-    modal.innerHTML = `
-        <div class="modal-content">
-            <span class="close" onclick="closeModal('groups-modal')">&times;</span>
-            <h2>👥 Группы</h2>
-            <button class="settings-btn" onclick="createGroup()">+ Создать группу</button>
-            <div id="groupsList" class="groups-list"></div>
-        </div>
-    `;
-    document.body.appendChild(modal);
-}
-
-function loadGroups() {
-    const saved = localStorage.getItem('groups');
-    if (saved) {
-        groups = JSON.parse(saved);
-    }
-    
-    const groupsList = document.getElementById('groupsList');
-    groupsList.innerHTML = '';
-    
-    if (groups.length === 0) {
-        groupsList.innerHTML = '<p class="empty-state">У вас пока нет групп. Создайте первую!</p>';
-        return;
-    }
-    
-    groups.forEach(group => {
-        const groupEl = document.createElement('div');
-        groupEl.className = 'group-item';
-        groupEl.onclick = () => openGroupSettings(group.id);
-        
-        const avatarStyle = groupAvatars[group.id] 
-            ? `background-image: url(${groupAvatars[group.id]}); background-size: cover; background-position: center;`
-            : '';
-        
-        groupEl.innerHTML = `
-            <div class="group-avatar" style="${avatarStyle}">
-                ${!groupAvatars[group.id] ? `<span>${group.name.charAt(0).toUpperCase()}</span>` : ''}
-            </div>
-            <div class="group-info">
-                <div class="group-name">${group.name}</div>
-                <div class="group-members-count">${group.members.length} участников</div>
-            </div>
-        `;
-        groupsList.appendChild(groupEl);
-    });
-}
-
-function createGroup() {
-    const name = prompt('Введите название группы:');
-    if (name && name.trim()) {
-        const group = {
-            id: Date.now(),
-            name: name.trim(),
-            members: [currentUser.username],
-            createdAt: new Date().toISOString()
-        };
-        
-        groups.push(group);
-        localStorage.setItem('groups', JSON.stringify(groups));
-        loadGroups();
-    }
-}
-
-function openGroupSettings(groupId) {
-    currentGroupId = groupId;
-    const group = groups.find(g => g.id === groupId);
-    if (!group) return;
-    
-    const modal = document.getElementById('group-settings-modal');
-    if (!modal) {
-        createGroupSettingsModal();
-    }
-    
-    document.getElementById('groupNameInput').value = group.name;
-    document.getElementById('groupNameDisplay').textContent = group.name;
-    
-    const groupAvatar = document.getElementById('groupAvatar');
-    if (groupAvatars[groupId]) {
-        groupAvatar.style.backgroundImage = `url(${groupAvatars[groupId]})`;
-        groupAvatar.style.backgroundSize = 'cover';
-        groupAvatar.style.backgroundPosition = 'center';
-        groupAvatar.querySelector('span').style.display = 'none';
-    } else {
-        groupAvatar.style.backgroundImage = '';
-        groupAvatar.querySelector('span').style.display = 'flex';
-        groupAvatar.querySelector('span').textContent = group.name.charAt(0).toUpperCase();
-    }
-    
-    const membersList = document.getElementById('groupMembers');
-    membersList.innerHTML = '';
-    group.members.forEach(member => {
-        const memberEl = document.createElement('div');
-        memberEl.className = 'group-member-item';
-        memberEl.innerHTML = `
-            <span class="status online"></span>
-            <span>${member}</span>
-            ${member !== currentUser.username ? `<button onclick="removeFromGroup('${member}')" style="margin-left: auto; background: #ed4245; border: none; color: white; padding: 4px 8px; border-radius: 4px; cursor: pointer;">✕</button>` : ''}
-        `;
-        membersList.appendChild(memberEl);
-    });
-    
-    closeModal('groups-modal');
-    document.getElementById('group-settings-modal').classList.add('active');
-}
-
-function createGroupSettingsModal() {
-    const modal = document.createElement('div');
-    modal.id = 'group-settings-modal';
-    modal.className = 'modal';
-    modal.innerHTML = `
-        <div class="modal-content">
-            <span class="close" onclick="closeModal('group-settings-modal')">&times;</span>
-            <h2>⚙️ Настройки группы</h2>
-            <div class="settings-section">
-                <h3>Аватар группы</h3>
-                <div class="profile-preview">
-                    <div class="profile-avatar" id="groupAvatar">
-                        <span id="groupAvatarText">Г</span>
-                    </div>
-                    <div>
-                        <div class="profile-name" id="groupNameDisplay">Моя группа</div>
-                    </div>
-                </div>
-                <button class="settings-btn" onclick="changeGroupAvatar()">Изменить аватар</button>
-                <input type="file" id="groupAvatarInput" accept="image/*" style="display: none;" onchange="handleGroupAvatarUpload(event)">
-            </div>
-            <div class="settings-section">
-                <h3>Название группы</h3>
-                <input type="text" id="groupNameInput" class="settings-input" placeholder="Название группы">
-                <button class="settings-btn" onclick="saveGroupSettings()">Сохранить</button>
-            </div>
-            <div class="settings-section">
-                <h3>Участники</h3>
-                <div id="groupMembers" class="group-members-list"></div>
-                <div style="margin-top: 12px;">
-                    <input type="text" id="addMemberInput" placeholder="Добавить участника..." style="padding: 8px; border: 1px solid #555; border-radius: 4px; background: var(--bg-tertiary); color: var(--text-primary); width: 100%; margin-bottom: 8px;">
-                    <button class="settings-btn" onclick="addMemberToGroup()">Добавить</button>
-                </div>
-            </div>
-        </div>
-    `;
-    document.body.appendChild(modal);
-}
-
-function changeGroupAvatar() {
-    document.getElementById('groupAvatarInput').click();
-}
-
-function handleGroupAvatarUpload(event) {
-    const file = event.target.files[0];
-    if (file && currentGroupId) {
-        const reader = new FileReader();
-        reader.onload = function(e) {
-            groupAvatars[currentGroupId] = e.target.result;
-            localStorage.setItem('groupAvatars', JSON.stringify(groupAvatars));
-            
-            const groupAvatar = document.getElementById('groupAvatar');
-            groupAvatar.style.backgroundImage = `url(${e.target.result})`;
-            groupAvatar.style.backgroundSize = 'cover';
-            groupAvatar.style.backgroundPosition = 'center';
-            groupAvatar.querySelector('span').style.display = 'none';
-        };
-        reader.readAsDataURL(file);
-    }
-}
-
-function saveGroupSettings() {
-    if (!currentGroupId) return;
-    
-    const newName = document.getElementById('groupNameInput').value.trim();
-    const group = groups.find(g => g.id === currentGroupId);
-    
-    if (newName && group) {
-        group.name = newName;
-        localStorage.setItem('groups', JSON.stringify(groups));
-        closeModal('group-settings-modal');
-        loadGroups();
-    }
-}
-
-function addMemberToGroup() {
-    const input = document.getElementById('addMemberInput');
-    const memberName = input.value.trim();
-    
-    if (!memberName || !currentGroupId) return;
-    
-    const group = groups.find(g => g.id === currentGroupId);
-    if (group && !group.members.includes(memberName)) {
-        group.members.push(memberName);
-        localStorage.setItem('groups', JSON.stringify(groups));
-        input.value = '';
-        openGroupSettings(currentGroupId);
-    }
-}
-
-function removeFromGroup(memberName) {
-    if (!currentGroupId) return;
-    
-    const group = groups.find(g => g.id === currentGroupId);
-    if (group) {
-        group.members = group.members.filter(m => m !== memberName);
-        localStorage.setItem('groups', JSON.stringify(groups));
-        openGroupSettings(currentGroupId);
-    }
-}
-
-// ===== НИТРО =====
-
-function showNitro() {
-    const modal = document.getElementById('nitro-modal');
-    if (!modal) {
-        createNitroModal();
-    }
-    document.getElementById('nitro-modal').classList.add('active');
-}
-
-function createNitroModal() {
-    const modal = document.createElement('div');
-    modal.id = 'nitro-modal';
-    modal.className = 'modal';
-    modal.innerHTML = `
-        <div class="modal-content nitro-content">
-            <span class="close" onclick="closeModal('nitro-modal')">&times;</span>
-            <div class="nitro-header">
-                <h1>⭐ РусНитро</h1>
-                <p class="nitro-subtitle">Бесплатно для всех россиян!</p>
-            </div>
-            <div class="nitro-features">
-                <div class="nitro-feature">
-                    <span class="nitro-icon">🎨</span>
-                    <div>
-                        <h3>Кастомные аватары</h3>
-                        <p>Загружайте свои изображения</p>
-                    </div>
-                </div>
-                <div class="nitro-feature">
-                    <span class="nitro-icon">😊</span>
-                    <div>
-                        <h3>Эмодзи везде</h3>
-                        <p>Используйте эмодзи в любом месте</p>
-                    </div>
-                </div>
-                <div class="nitro-feature">
-                    <span class="nitro-icon">📁</span>
-                    <div>
-                        <h3>Большие файлы</h3>
-                        <p>До 100 МБ вместо 8 МБ</p>
-                    </div>
-                </div>
-                <div class="nitro-feature">
-                    <span class="nitro-icon">🎬</span>
-                    <div>
-                        <h3>HD видео</h3>
-                        <p>Трансляция в 1080p 60fps</p>
-                    </div>
-                </div>
-                <div class="nitro-feature">
-                    <span class="nitro-icon">🎭</span>
-                    <div>
-                        <h3>Профили</h3>
-                        <p>Кастомизация профиля</p>
-                    </div>
-                </div>
-                <div class="nitro-feature">
-                    <span class="nitro-icon">🚀</span>
-                    <div>
-                        <h3>Буст серверов</h3>
-                        <p>2 бесплатных буста</p>
-                    </div>
-                </div>
-            </div>
-            <div class="nitro-activated">
-                <div class="nitro-badge-large">⭐ РусНитро Активирован</div>
-                <p>Вы получили все преимущества бесплатно!</p>
-            </div>
-        </div>
-    `;
-    document.body.appendChild(modal);
-}
-
-// ===== НАСТРОЙКИ =====
-
-function showSettings() {
-    const modal = document.getElementById('settings-modal');
-    if (!modal) {
-        createSettingsModal();
-    }
-    document.getElementById('settings-modal').classList.add('active');
-}
-
-function createSettingsModal() {
-    const modal = document.createElement('div');
-    modal.id = 'settings-modal';
-    modal.className = 'modal';
-    modal.innerHTML = `
-        <div class="modal-content">
-            <span class="close" onclick="closeModal('settings-modal')">&times;</span>
-            <h2>⚙️ Настройки</h2>
-            <div class="settings-section">
-                <h3>Профиль</h3>
-                <div class="profile-preview">
-                    <div class="profile-avatar" id="profileAvatar">
-                        <span id="profileAvatarText">П</span>
-                    </div>
-                    <div>
-                        <div class="profile-name" id="profileName">Пользователь</div>
-                        <div class="nitro-badge">⭐ РусНитро</div>
-                    </div>
-                </div>
-                <button class="settings-btn" onclick="changeAvatar()">Изменить аватар</button>
-                <input type="file" id="avatarInput" accept="image/*" style="display: none;" onchange="handleAvatarUpload(event)">
-            </div>
-            <div class="settings-section">
-                <h3>Тема оформления</h3>
-                <select id="themeSelect" onchange="changeTheme()" style="padding: 8px; border: 1px solid #555; border-radius: 4px; background: var(--bg-tertiary); color: var(--text-primary); width: 100%;">
-                    <option value="dark">Темная</option>
-                    <option value="light">Светлая</option>
-                    <option value="blue">Синяя</option>
-                </select>
-            </div>
-            <div class="settings-section">
-                <h3>Уведомления</h3>
-                <label class="checkbox-label">
-                    <input type="checkbox" id="soundNotif" checked> Звуковые уведомления
-                </label>
-                <label class="checkbox-label">
-                    <input type="checkbox" id="desktopNotif" checked> Уведомления на рабочем столе
-                </label>
-            </div>
-        </div>
-    `;
-    document.body.appendChild(modal);
-    
     const savedTheme = localStorage.getItem('theme') || 'dark';
-    document.getElementById('themeSelect').value = savedTheme;
+    document.body.className = `theme-${savedTheme}`;
 }
 
-function changeAvatar() {
-    document.getElementById('avatarInput').click();
-}
-
-function handleAvatarUpload(event) {
-    const file = event.target.files[0];
-    if (file) {
-        const reader = new FileReader();
-        reader.onload = function(e) {
-            userAvatar = e.target.result;
-            localStorage.setItem('userAvatar', userAvatar);
-            updateUserAvatar();
-        };
-        reader.readAsDataURL(file);
+function closeModal(modalId) {
+    const modal = document.getElementById(modalId);
+    if (modal) {
+        modal.classList.remove('active');
     }
 }
 
-function updateUserAvatar() {
-    const profileAvatar = document.getElementById('profileAvatar');
-    if (profileAvatar && userAvatar) {
-        profileAvatar.style.backgroundImage = `url(${userAvatar})`;
-        profileAvatar.style.backgroundSize = 'cover';
-        profileAvatar.style.backgroundPosition = 'center';
-        profileAvatar.querySelector('span').style.display = 'none';
-    }
-}
-
-function changeTheme() {
-    const theme = document.getElementById('themeSelect').value;
-    document.body.className = `theme-${theme}`;
-    localStorage.setItem('theme', theme);
-}
-
+// Настройки сервера
 function showServerSettings() {
     const modal = document.getElementById('server-settings-modal');
     if (!modal) {
         createServerSettingsModal();
+    }
+    const server = servers.get(currentServerId);
+    if (server) {
+        document.getElementById('serverNameInput').value = server.name;
     }
     document.getElementById('server-settings-modal').classList.add('active');
 }
@@ -1238,7 +941,7 @@ function createServerSettingsModal() {
             <h2>⚙️ Настройки сервера</h2>
             <div class="settings-section">
                 <h3>Название сервера</h3>
-                <input type="text" id="serverNameInput" class="settings-input" placeholder="Название сервера" value="РусЧат Сервер" style="padding: 8px; border: 1px solid #555; border-radius: 4px; background: var(--bg-tertiary); color: var(--text-primary); width: 100%; margin-bottom: 8px;">
+                <input type="text" id="serverNameInput" class="settings-input" placeholder="Название сервера">
                 <button class="settings-btn" onclick="saveServerSettings()">Сохранить</button>
             </div>
         </div>
@@ -1255,13 +958,21 @@ function saveServerSettings() {
             updateServersList();
             updateChannelsList();
             closeModal('server-settings-modal');
+            showNotification('Настройки сохранены', 'success');
         }
     }
 }
 
-function closeModal(modalId) {
-    const modal = document.getElementById(modalId);
-    if (modal) {
-        modal.classList.remove('active');
+// Закрытие модальных окон при клике вне их
+window.onclick = function(event) {
+    if (event.target.classList.contains('modal')) {
+        event.target.classList.remove('active');
     }
 }
+
+// Заглушки для дополнительных функций
+function showWeather() { showNotification('Функция в разработке', 'info'); }
+function showStocks() { showNotification('Функция в разработке', 'info'); }
+function showGroups() { showNotification('Функция в разработке', 'info'); }
+function showNitro() { showNotification('Функция в разработке', 'info'); }
+function showSettings() { showNotification('Функция в разработке', 'info'); }

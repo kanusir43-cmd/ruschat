@@ -5,38 +5,42 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>РусЧат - Мессенджер для россиян</title>
     <link rel="stylesheet" href="style.css">
-    <link rel="stylesheet" href="nitro-styles.css">
 </head>
-<body>
+<body class="theme-dark">
+    <!-- Экран авторизации -->
     <div id="auth-screen" class="screen active">
         <div class="auth-container">
-            <h1>🇷🇺 РусЧат</h1>
-            <p>Мессенджер для российских пользователей</p>
+            <div class="auth-logo">🇷🇺</div>
+            <h1>РусЧат</h1>
+            <p class="auth-subtitle">Мессенджер для российских пользователей</p>
             <div class="auth-form">
                 <input type="text" id="username" placeholder="Имя пользователя" required>
                 <input type="tel" id="phone" placeholder="+7 (___) ___-__-__" pattern="\+7\d{10}" required>
-                <button onclick="login()">Войти</button>
-                <p class="info">Доступ только для пользователей из России</p>
+                <button onclick="login()" class="auth-btn">Войти</button>
+                <p class="auth-info">Доступ только для пользователей из России</p>
             </div>
         </div>
     </div>
 
+    <!-- Основной экран чата -->
     <div id="chat-screen" class="screen">
-        <div class="sidebar">
-            <div class="server-list"></div>
-            <div class="channels"></div>
-        </div>
+        <!-- Список серверов -->
+        <div class="server-list"></div>
 
+        <!-- Список каналов -->
+        <div class="channels"></div>
+
+        <!-- Основной контент -->
         <div class="main-content">
             <div class="chat-header">
                 <span class="channel-name"># общий</span>
                 <div class="header-actions">
-                    <button onclick="showWeather()">🌤️ Погода</button>
-                    <button onclick="showStocks()">📈 Акции</button>
-                    <button onclick="showGroups()">👥 Группы</button>
-                    <button onclick="showNitro()" class="nitro-btn">⭐ РусНитро</button>
-                    <button onclick="showSettings()">⚙️</button>
-                    <button onclick="logout()">Выход</button>
+                    <button onclick="showWeather()" title="Погода">🌤️</button>
+                    <button onclick="showStocks()" title="Акции">📈</button>
+                    <button onclick="showGroups()" title="Группы">👥</button>
+                    <button onclick="showNitro()" class="nitro-btn" title="РусНитро">⭐</button>
+                    <button onclick="showSettings()" title="Настройки">⚙️</button>
+                    <button onclick="logout()" title="Выход">🚪</button>
                 </div>
             </div>
             <div class="messages" id="messages"></div>
@@ -46,16 +50,18 @@
             </div>
         </div>
 
+        <!-- Список участников -->
         <div class="right-sidebar">
-            <div class="members-title">УЧАСТНИКИ — <span id="memberCount">1</span></div>
+            <div class="members-title">УЧАСТНИКИ — <span id="memberCount">0</span></div>
             <div class="members-list" id="membersList"></div>
         </div>
 
-        <div class="voice-settings" id="voiceSettings">
-            <button class="voice-control-btn" onclick="toggleMute()">
-                <span>🎤</span> Откл./Вкл. микрофон
+        <!-- Панель управления голосом -->
+        <div class="voice-controls" id="voiceControls">
+            <button class="voice-control-btn" id="muteBtn" onclick="toggleMute()">
+                <span>🎤</span> Выключить микрофон
             </button>
-            <button class="voice-control-btn" onclick="shareScreen()">
+            <button class="voice-control-btn" id="screenShareBtn" onclick="shareScreen()">
                 <span>🖥️</span> Демонстрация экрана
             </button>
             <button class="voice-control-btn danger" onclick="leaveVoiceChannel()">
