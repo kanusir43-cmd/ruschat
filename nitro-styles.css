@@ -1,0 +1,284 @@
+/* Профиль и аватары */
+.profile-preview {
+    display: flex;
+    align-items: center;
+    gap: 15px;
+    padding: 15px;
+    background: var(--bg-hover);
+    border-radius: 8px;
+    margin-bottom: 15px;
+}
+
+.profile-avatar {
+    width: 80px;
+    height: 80px;
+    border-radius: 50%;
+    background: var(--accent);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 32px;
+    font-weight: bold;
+    flex-shrink: 0;
+    box-shadow: 0 4px 8px rgba(0,0,0,0.3);
+    cursor: pointer;
+    transition: transform 0.2s;
+}
+
+.profile-avatar:hover {
+    transform: scale(1.05);
+}
+
+.profile-name {
+    font-size: 20px;
+    font-weight: bold;
+    margin-bottom: 5px;
+}
+
+.nitro-badge {
+    background: linear-gradient(90deg, #ff73fa 0%, #ffa76f 100%);
+    color: white;
+    padding: 4px 10px;
+    border-radius: 12px;
+    font-size: 12px;
+    font-weight: bold;
+    display: inline-block;
+}
+
+.nitro-badge-small {
+    background: linear-gradient(90deg, #ff73fa 0%, #ffa76f 100%);
+    color: white;
+    padding: 2px 6px;
+    border-radius: 8px;
+    font-size: 10px;
+    font-weight: bold;
+    margin-left: 5px;
+}
+
+.settings-btn {
+    width: 100%;
+    padding: 10px;
+    background: var(--accent);
+    border: none;
+    border-radius: 5px;
+    color: white;
+    cursor: pointer;
+    font-size: 14px;
+    font-weight: 600;
+    transition: all 0.2s;
+    margin-top: 10px;
+}
+
+.settings-btn:hover {
+    background: var(--accent-hover);
+    transform: translateY(-1px);
+}
+
+.settings-input {
+    width: 100%;
+    padding: 10px;
+    background: var(--bg-hover);
+    border: 1px solid var(--bg-tertiary);
+    border-radius: 5px;
+    color: var(--text-primary);
+    font-size: 14px;
+    margin-bottom: 10px;
+}
+
+/* Группы */
+.groups-list {
+    margin-top: 20px;
+}
+
+.group-item {
+    display: flex;
+    align-items: center;
+    gap: 15px;
+    padding: 15px;
+    background: var(--bg-hover);
+    border-radius: 8px;
+    margin: 10px 0;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.group-item:hover {
+    background: var(--bg-tertiary);
+    transform: translateX(5px);
+}
+
+.group-avatar {
+    width: 50px;
+    height: 50px;
+    border-radius: 50%;
+    background: var(--accent);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 20px;
+    font-weight: bold;
+    flex-shrink: 0;
+}
+
+.group-info {
+    flex: 1;
+}
+
+.group-name {
+    font-weight: bold;
+    font-size: 16px;
+    margin-bottom: 4px;
+}
+
+.group-members-count {
+    font-size: 12px;
+    color: var(--text-secondary);
+}
+
+.group-members-list {
+    max-height: 200px;
+    overflow-y: auto;
+}
+
+.group-member-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px;
+    background: var(--bg-hover);
+    border-radius: 4px;
+    margin: 5px 0;
+}
+
+.empty-state {
+    text-align: center;
+    color: var(--text-secondary);
+    padding: 40px 20px;
+    font-size: 14px;
+}
+
+/* РусНитро */
+.nitro-content {
+    max-width: 600px;
+}
+
+.nitro-header {
+    text-align: center;
+    padding: 20px;
+    background: linear-gradient(135deg, #ff73fa 0%, #ffa76f 100%);
+    border-radius: 10px;
+    margin-bottom: 30px;
+}
+
+.nitro-header h1 {
+    font-size: 36px;
+    margin-bottom: 10px;
+}
+
+.nitro-subtitle {
+    font-size: 18px;
+    opacity: 0.9;
+}
+
+.nitro-features {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 15px;
+    margin: 20px 0;
+}
+
+.nitro-feature {
+    display: flex;
+    align-items: center;
+    gap: 15px;
+    padding: 15px;
+    background: var(--bg-hover);
+    border-radius: 8px;
+    transition: all 0.2s;
+}
+
+.nitro-feature:hover {
+    background: var(--bg-tertiary);
+    transform: translateY(-2px);
+}
+
+.nitro-icon {
+    font-size: 32px;
+    flex-shrink: 0;
+}
+
+.nitro-feature h3 {
+    font-size: 14px;
+    margin-bottom: 4px;
+}
+
+.nitro-feature p {
+    font-size: 12px;
+    color: var(--text-secondary);
+}
+
+.nitro-activated {
+    text-align: center;
+    padding: 30px;
+    background: var(--bg-hover);
+    border-radius: 10px;
+    margin-top: 20px;
+}
+
+.nitro-badge-large {
+    background: linear-gradient(90deg, #ff73fa 0%, #ffa76f 100%);
+    color: white;
+    padding: 12px 24px;
+    border-radius: 20px;
+    font-size: 18px;
+    font-weight: bold;
+    display: inline-block;
+    margin-bottom: 15px;
+    box-shadow: 0 4px 12px rgba(255, 115, 250, 0.4);
+}
+
+.nitro-activated p {
+    color: var(--text-secondary);
+    font-size: 14px;
+}
+
+.nitro-btn {
+    background: linear-gradient(90deg, #ff73fa 0%, #ffa76f 100%) !important;
+    font-weight: bold;
+    box-shadow: 0 2px 8px rgba(255, 115, 250, 0.3);
+}
+
+.nitro-btn:hover {
+    transform: translateY(-2px) !important;
+    box-shadow: 0 4px 12px rgba(255, 115, 250, 0.5) !important;
+}
+
+/* Настройки сервера */
+.server-name {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+}
+
+.server-settings-icon {
+    opacity: 0;
+    transition: opacity 0.2s;
+    font-size: 14px;
+}
+
+.server-name:hover .server-settings-icon {
+    opacity: 1;
+}
+
+/* Адаптивность */
+@media (max-width: 768px) {
+    .nitro-features {
+        grid-template-columns: 1fr;
+    }
+    
+    .profile-avatar {
+        width: 60px;
+        height: 60px;
+        font-size: 24px;
+    }
+}

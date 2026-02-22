@@ -1,0 +1,19 @@
+{
+  "name": "ruschat",
+  "version": "1.0.0",
+  "description": "Мессенджер для российских пользователей",
+  "main": "server.js",
+  "engines": {
+    "node": "18.x"
+  },
+  "scripts": {
+    "start": "node server.js"
+  },
+  "keywords": ["chat", "messenger", "russia"],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "express": "^4.18.2",
+    "ws": "^8.13.0"
+  }
+}
