@@ -23,35 +23,8 @@
 
     <div id="chat-screen" class="screen">
         <div class="sidebar">
-            <div class="server-list">
-                <div class="server active" onclick="selectServer(0)">
-                    <span>Р</span>
-                </div>
-                <div class="server" onclick="selectServer(1)">
-                    <span>О</span>
-                </div>
-                <div class="add-server" onclick="createServer()">+</div>
-            </div>
-            <div class="channels">
-                <div class="server-name" onclick="showServerSettings()">
-                    <span id="currentServerName">РусЧат Сервер</span>
-                    <span class="server-settings-icon">⚙️</span>
-                </div>
-                <div class="channel-category">ТЕКСТОВЫЕ КАНАЛЫ</div>
-                <div class="channel active" onclick="selectChannel(0)">
-                    <span>#</span> общий
-                </div>
-                <div class="channel" onclick="selectChannel(1)">
-                    <span>#</span> новости
-                </div>
-                <div class="channel" onclick="selectChannel(2)">
-                    <span>#</span> акции
-                </div>
-                <div class="channel-category">ГОЛОСОВЫЕ КАНАЛЫ</div>
-                <div class="channel voice" onclick="toggleVoiceChannel()">
-                    <span>🔊</span> Общая комната
-                </div>
-            </div>
+            <div class="server-list"></div>
+            <div class="channels"></div>
         </div>
 
         <div class="main-content">
@@ -75,207 +48,19 @@
 
         <div class="right-sidebar">
             <div class="members-title">УЧАСТНИКИ — <span id="memberCount">1</span></div>
-            <div class="members-list" id="membersList">
-                <div class="member">
-                    <span class="status online"></span>
-                    <span class="member-name">Вы</span>
-                </div>
-            </div>
+            <div class="members-list" id="membersList"></div>
         </div>
 
         <div class="voice-settings" id="voiceSettings">
             <button class="voice-control-btn" onclick="toggleMute()">
                 <span>🎤</span> Откл./Вкл. микрофон
             </button>
+            <button class="voice-control-btn" onclick="shareScreen()">
+                <span>🖥️</span> Демонстрация экрана
+            </button>
             <button class="voice-control-btn danger" onclick="leaveVoiceChannel()">
                 <span>📞</span> Отключиться
             </button>
-        </div>
-    </div>
-
-    <div id="stocks-modal" class="modal">
-        <div class="modal-content">
-            <span class="close" onclick="closeModal('stocks-modal')">&times;</span>
-            <h2>📈 Российские акции</h2>
-            <div id="stocksList"></div>
-        </div>
-    </div>
-
-    <div id="weather-modal" class="modal">
-        <div class="modal-content">
-            <span class="close" onclick="closeModal('weather-modal')">&times;</span>
-            <h2>🌤️ Прогноз погоды</h2>
-            <div class="weather-search">
-                <input type="text" id="cityInput" placeholder="Введите город..." value="Москва">
-                <button onclick="loadWeather()">Поиск</button>
-            </div>
-            <div id="weatherContent"></div>
-        </div>
-    </div>
-
-    <div id="settings-modal" class="modal">
-        <div class="modal-content">
-            <span class="close" onclick="closeModal('settings-modal')">&times;</span>
-            <h2>⚙️ Настройки</h2>
-            <div class="settings-section">
-                <h3>Профиль</h3>
-                <div class="profile-preview">
-                    <div class="profile-avatar" id="profileAvatar">
-                        <span id="profileAvatarText">П</span>
-                    </div>
-                    <div>
-                        <div class="profile-name" id="profileName">Пользователь</div>
-                        <div class="nitro-badge">⭐ РусНитро</div>
-                    </div>
-                </div>
-                <button class="settings-btn" onclick="changeAvatar()">Изменить аватар</button>
-                <input type="file" id="avatarInput" accept="image/*" style="display: none;" onchange="handleAvatarUpload(event)">
-            </div>
-            <div class="settings-section">
-                <h3>Тема оформления</h3>
-                <select id="themeSelect" onchange="changeTheme()">
-                    <option value="dark">Темная</option>
-                    <option value="light">Светлая</option>
-                    <option value="blue">Синяя</option>
-                </select>
-            </div>
-            <div class="settings-section">
-                <h3>Уведомления</h3>
-                <label class="checkbox-label">
-                    <input type="checkbox" id="soundNotif" checked> Звуковые уведомления
-                </label>
-                <label class="checkbox-label">
-                    <input type="checkbox" id="desktopNotif" checked> Уведомления на рабочем столе
-                </label>
-            </div>
-            <div class="settings-section">
-                <h3>Язык</h3>
-                <select id="langSelect">
-                    <option value="ru" selected>Русский</option>
-                    <option value="en">English</option>
-                </select>
-            </div>
-        </div>
-    </div>
-
-    <div id="groups-modal" class="modal">
-        <div class="modal-content">
-            <span class="close" onclick="closeModal('groups-modal')">&times;</span>
-            <h2>👥 Группы</h2>
-            <button class="settings-btn" onclick="createGroup()">+ Создать группу</button>
-            <div id="groupsList" class="groups-list"></div>
-        </div>
-    </div>
-
-    <div id="group-settings-modal" class="modal">
-        <div class="modal-content">
-            <span class="close" onclick="closeModal('group-settings-modal')">&times;</span>
-            <h2>⚙️ Настройки группы</h2>
-            <div class="settings-section">
-                <h3>Аватар группы</h3>
-                <div class="profile-preview">
-                    <div class="profile-avatar" id="groupAvatar">
-                        <span id="groupAvatarText">Г</span>
-                    </div>
-                    <div>
-                        <div class="profile-name" id="groupNameDisplay">Моя группа</div>
-                    </div>
-                </div>
-                <button class="settings-btn" onclick="changeGroupAvatar()">Изменить аватар</button>
-                <input type="file" id="groupAvatarInput" accept="image/*" style="display: none;" onchange="handleGroupAvatarUpload(event)">
-            </div>
-            <div class="settings-section">
-                <h3>Название группы</h3>
-                <input type="text" id="groupNameInput" class="settings-input" placeholder="Название группы">
-                <button class="settings-btn" onclick="saveGroupSettings()">Сохранить</button>
-            </div>
-            <div class="settings-section">
-                <h3>Участники</h3>
-                <div id="groupMembers" class="group-members-list"></div>
-            </div>
-        </div>
-    </div>
-
-    <div id="nitro-modal" class="modal">
-        <div class="modal-content nitro-content">
-            <span class="close" onclick="closeModal('nitro-modal')">&times;</span>
-            <div class="nitro-header">
-                <h1>⭐ РусНитро</h1>
-                <p class="nitro-subtitle">Бесплатно для всех россиян!</p>
-            </div>
-            <div class="nitro-features">
-                <div class="nitro-feature">
-                    <span class="nitro-icon">🎨</span>
-                    <div>
-                        <h3>Кастомные аватары</h3>
-                        <p>Загружайте свои изображения</p>
-                    </div>
-                </div>
-                <div class="nitro-feature">
-                    <span class="nitro-icon">😊</span>
-                    <div>
-                        <h3>Эмодзи везде</h3>
-                        <p>Используйте эмодзи в любом месте</p>
-                    </div>
-                </div>
-                <div class="nitro-feature">
-                    <span class="nitro-icon">📁</span>
-                    <div>
-                        <h3>Большие файлы</h3>
-                        <p>До 100 МБ вместо 8 МБ</p>
-                    </div>
-                </div>
-                <div class="nitro-feature">
-                    <span class="nitro-icon">🎬</span>
-                    <div>
-                        <h3>HD видео</h3>
-                        <p>Трансляция в 1080p 60fps</p>
-                    </div>
-                </div>
-                <div class="nitro-feature">
-                    <span class="nitro-icon">🎭</span>
-                    <div>
-                        <h3>Профили</h3>
-                        <p>Кастомизация профиля</p>
-                    </div>
-                </div>
-                <div class="nitro-feature">
-                    <span class="nitro-icon">🚀</span>
-                    <div>
-                        <h3>Буст серверов</h3>
-                        <p>2 бесплатных буста</p>
-                    </div>
-                </div>
-            </div>
-            <div class="nitro-activated">
-                <div class="nitro-badge-large">⭐ РусНитро Активирован</div>
-                <p>Вы получили все преимущества бесплатно!</p>
-            </div>
-        </div>
-    </div>
-
-    <div id="server-settings-modal" class="modal">
-        <div class="modal-content">
-            <span class="close" onclick="closeModal('server-settings-modal')">&times;</span>
-            <h2>⚙️ Настройки сервера</h2>
-            <div class="settings-section">
-                <h3>Аватар сервера</h3>
-                <div class="profile-preview">
-                    <div class="profile-avatar" id="serverAvatar">
-                        <span id="serverAvatarText">Р</span>
-                    </div>
-                    <div>
-                        <div class="profile-name" id="serverNameDisplay">РусЧат Сервер</div>
-                    </div>
-                </div>
-                <button class="settings-btn" onclick="changeServerAvatar()">Изменить аватар</button>
-                <input type="file" id="serverAvatarInput" accept="image/*" style="display: none;" onchange="handleServerAvatarUpload(event)">
-            </div>
-            <div class="settings-section">
-                <h3>Название сервера</h3>
-                <input type="text" id="serverNameInput" class="settings-input" placeholder="Название сервера" value="РусЧат Сервер">
-                <button class="settings-btn" onclick="saveServerSettings()">Сохранить</button>
-            </div>
         </div>
     </div>
 
