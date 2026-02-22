@@ -32,16 +32,19 @@ function isRussianPhone(phone) {
 }
 
 function login() {
+    console.log('Login clicked');
     const username = document.getElementById('username').value.trim();
     const phone = document.getElementById('phone').value.trim();
     
+    console.log('Username:', username, 'Phone:', phone);
+    
     if (!username) {
-        showNotification('Введите имя пользователя', 'error');
+        alert('Введите имя пользователя');
         return;
     }
     
     if (!isRussianPhone(phone)) {
-        showNotification('Доступ только для российских номеров (+7)', 'error');
+        alert('Доступ только для российских номеров (+7)');
         return;
     }
     
@@ -50,6 +53,8 @@ function login() {
         phone: phone,
         id: Date.now()
     };
+    
+    console.log('User created:', currentUser);
     
     document.getElementById('auth-screen').classList.remove('active');
     document.getElementById('chat-screen').classList.add('active');
