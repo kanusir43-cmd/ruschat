@@ -20,6 +20,7 @@ let currentVoiceChannel = null;
 let userAvatar = null;
 let groups = [];
 let groupAvatars = {};
+let serverAvatars = new Map(); // Аватарки серверов
 
 // Защита от спама
 let lastMessageTime = 0;
@@ -167,6 +168,7 @@ function handleAuthSuccess(data) {
     data.servers.forEach(server => {
         servers.set(server.id, server);
     });
+    loadServerAvatars();
     updateServersList();
     selectServer(currentServerId);
     showNotification(`Добро пожаловать, ${currentUser.username}!`, 'success');
@@ -275,7 +277,17 @@ function updateServersList() {
             e.preventDefault();
             showServerContextMenu(e, serverId);
         };
-        serverEl.innerHTML = `<span>${server.name.charAt(0).toUpperCase()}</span>`;
+        
+        const avatar = serverAvatars.get(serverId);
+        if (avatar) {
+            serverEl.style.backgroundImage = `url(${avatar})`;
+            serverEl.style.backgroundSize = 'cover';
+            serverEl.style.backgroundPosition = 'center';
+            serverEl.innerHTML = '';
+        } else {
+            serverEl.innerHTML = `<span>${server.name.charAt(0).toUpperCase()}</span>`;
+        }
+        
         serverList.appendChild(serverEl);
     });
     
@@ -972,6 +984,20 @@ function showServerSettings() {
     const server = servers.get(currentServerId);
     if (server) {
         document.getElementById('serverNameInput').value = server.name;
+        
+        // Показываем аватар сервера
+        const serverAvatarEl = document.getElementById('serverAvatarDisplay');
+        const avatar = serverAvatars.get(currentServerId);
+        if (avatar) {
+            serverAvatarEl.style.backgroundImage = `url(${avatar})`;
+            serverAvatarEl.style.backgroundSize = 'cover';
+            serverAvatarEl.style.backgroundPosition = 'center';
+            serverAvatarEl.querySelector('span').style.display = 'none';
+        } else {
+            serverAvatarEl.style.backgroundImage = '';
+            serverAvatarEl.querySelector('span').style.display = 'flex';
+            serverAvatarEl.querySelector('span').textContent = server.name.charAt(0).toUpperCase();
+        }
     }
     document.getElementById('server-settings-modal').classList.add('active');
 }
@@ -985,9 +1011,22 @@ function createServerSettingsModal() {
             <span class="close" onclick="closeModal('server-settings-modal')">&times;</span>
             <h2><i class="fas fa-cog"></i> Настройки сервера</h2>
             <div class="settings-section">
+                <h3>Аватар сервера</h3>
+                <div class="profile-preview">
+                    <div class="profile-avatar" id="serverAvatarDisplay">
+                        <span>Р</span>
+                    </div>
+                    <div>
+                        <div class="profile-name" id="serverNameDisplay">Сервер</div>
+                    </div>
+                </div>
+                <button class="settings-btn" onclick="changeServerAvatar()"><i class="fas fa-image"></i> Изменить аватар</button>
+                <input type="file" id="serverAvatarInput" accept="image/*" style="display: none;" onchange="handleServerAvatarUpload(event)">
+            </div>
+            <div class="settings-section">
                 <h3>Название сервера</h3>
                 <input type="text" id="serverNameInput" class="settings-input" placeholder="Название сервера">
-                <button class="settings-btn" onclick="saveServerSettings()">Сохранить</button>
+                <button class="settings-btn" onclick="saveServerSettings()"><i class="fas fa-save"></i> Сохранить</button>
             </div>
         </div>
     `;
@@ -1508,4 +1547,45 @@ window.onclick = function(event) {
     if (event.target.classList.contains('modal')) {
         event.target.classList.remove('active');
     }
+}
+
+
+// ===== АВАТАР СЕРВЕРА =====
+function changeServerAvatar() {
+    document.getElementById('serverAvatarInput').click();
+}
+
+function handleServerAvatarUpload(event) {
+    const file = event.target.files[0];
+    if (file) {
+        const reader = new FileReader();
+        reader.onload = function(e) {
+            const avatar = e.target.result;
+            serverAvatars.set(currentServerId, avatar);
+            localStorage.setItem(`serverAvatar-${currentServerId}`, avatar);
+            
+            // Обновляем отображение в модальном окне
+            const serverAvatarEl = document.getElementById('serverAvatarDisplay');
+            serverAvatarEl.style.backgroundImage = `url(${avatar})`;
+            serverAvatarEl.style.backgroundSize = 'cover';
+            serverAvatarEl.style.backgroundPosition = 'center';
+            serverAvatarEl.querySelector('span').style.display = 'none';
+            
+            // Обновляем в списке серверов
+            updateServersList();
+            
+            showNotification('Аватар сервера обновлен!', 'success');
+        };
+        reader.readAsDataURL(file);
+    }
+}
+
+// Загрузка аватаров серверов из localStorage при загрузке
+function loadServerAvatars() {
+    servers.forEach((server, serverId) => {
+        const savedAvatar = localStorage.getItem(`serverAvatar-${serverId}`);
+        if (savedAvatar) {
+            serverAvatars.set(serverId, savedAvatar);
+        }
+    });
 }

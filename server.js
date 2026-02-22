@@ -23,6 +23,7 @@ const servers = new Map();
 const channels = new Map();
 const voiceRooms = new Map();
 const rateLimits = new Map(); // Защита от спама
+const serverAvatars = new Map(); // Аватарки серверов
 
 // Константы для rate limiting
 const RATE_LIMIT = {
@@ -184,6 +185,18 @@ wss.on('connection', (ws) => {
                     }));
                     ws.close();
                     return;
+                }
+
+                // Проверяем, не подключен ли уже этот пользователь
+                for (let [existingWs, existingData] of clients) {
+                    if (existingData.username === data.username) {
+                        ws.send(JSON.stringify({
+                            type: 'error',
+                            message: 'Этот аккаунт уже подключен'
+                        }));
+                        ws.close();
+                        return;
+                    }
                 }
 
                 clientData = {

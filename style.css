@@ -24,7 +24,6 @@ body {
     color: var(--text-primary);
     height: 100vh;
     overflow: hidden;
-    transition: all 0.3s ease;
 }
 
 body.theme-light {
@@ -127,7 +126,6 @@ body.theme-blue {
     color: var(--text-secondary);
 }
 
-
 /* ===== ОСНОВНОЙ ЭКРАН ===== */
 #chat-screen {
     display: grid;
@@ -145,6 +143,7 @@ body.theme-blue {
     align-items: center;
     gap: 8px;
     overflow-y: auto;
+    border-right: 1px solid var(--bg-primary);
 }
 
 .server {
@@ -161,6 +160,7 @@ body.theme-blue {
     cursor: pointer;
     transition: all 0.2s;
     position: relative;
+    overflow: hidden;
 }
 
 .server:hover {
@@ -195,6 +195,7 @@ body.theme-blue {
     color: var(--success);
     cursor: pointer;
     transition: all 0.2s;
+    margin-top: auto;
 }
 
 .add-server:hover {
@@ -209,6 +210,7 @@ body.theme-blue {
     background: var(--bg-secondary);
     padding: 12px 0;
     overflow-y: auto;
+    border-right: 1px solid var(--bg-tertiary);
 }
 
 .server-header {
@@ -344,7 +346,6 @@ body.theme-blue {
     0%, 100% { opacity: 1; transform: scale(1); }
     50% { opacity: 0.7; transform: scale(1.2); }
 }
-
 
 /* ===== ОСНОВНОЙ КОНТЕНТ ===== */
 .main-content {
@@ -493,6 +494,7 @@ body.theme-blue {
     background: var(--bg-secondary);
     padding: 16px 0;
     overflow-y: auto;
+    border-left: 1px solid var(--bg-tertiary);
 }
 
 .members-title {
@@ -578,7 +580,6 @@ body.theme-blue {
     background: var(--danger);
     color: white;
 }
-
 
 /* ===== МОДАЛЬНЫЕ ОКНА ===== */
 .modal {
@@ -670,6 +671,36 @@ body.theme-blue {
 
 .settings-btn:hover {
     background: var(--accent-hover);
+}
+
+.profile-preview {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    margin-bottom: 16px;
+    padding: 12px;
+    background: var(--bg-tertiary);
+    border-radius: 8px;
+}
+
+.profile-avatar {
+    width: 64px;
+    height: 64px;
+    border-radius: 50%;
+    background: var(--accent);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 28px;
+    font-weight: 600;
+    color: white;
+    flex-shrink: 0;
+}
+
+.profile-name {
+    font-weight: 600;
+    color: var(--text-primary);
+    margin-bottom: 4px;
 }
 
 /* ===== ПРИВАТНЫЕ СООБЩЕНИЯ ===== */
@@ -904,9 +935,4 @@ body.theme-blue {
 
 ::-webkit-scrollbar-thumb:hover {
     background: var(--text-secondary);
-}
-
-
-.notification-warning {
-    border-left: 4px solid var(--warning);
 }
